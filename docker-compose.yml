@@ -1,0 +1,48 @@
+services:
+ # 1. Interactive Web UI + FastAPI WebSocket Bridge + Multi-Provider Stream Router
+ tracegate-bridge:
+   build: .
+   container_name: tracegate-bridge
+   command: ["up", "--host", "0.0.0.0", "--port", "8000"]
+   ports:
+     - "8000:8000"
+   env_file:
+     - path: .env
+       required: false
+   environment:
+     - TRACEGATE_DB_PATH=/data/tracegate_dag.sqlite3
+     - TRACEGATE_USD_TO_INR=${TRACEGATE_USD_TO_INR:-86.50}
+     - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+     - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+     - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+     - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+   volumes:
+     - tracegate_sqlite_data:/data
+   healthcheck:
+     # NOTE: the healthcheck URL was cut off in the source PDF; root path used as a placeholder - verify the real endpoint.
+     test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+     interval: 10s
+     timeout: 5s
+     retries: 3
+   restart: unless-stopped
+ # 2. Remote MCP SSE Server (Shares the exact same SQLite WAL database with the Web UI!)
+ tracegate-mcp-sse:
+   build: .
+   container_name: tracegate-mcp-sse
+   command: ["mcp", "--transport", "sse", "--host", "0.0.0.0", "--port", "8001"]
+   ports:
+     - "8001:8001"
+   env_file:
+     - path: .env
+       required: false
+   environment:
+     - TRACEGATE_DB_PATH=/data/tracegate_dag.sqlite3
+     - TRACEGATE_USD_TO_INR=${TRACEGATE_USD_TO_INR:-86.50}
+     - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+   volumes:
+     - tracegate_sqlite_data:/data
+   depends_on:
+     - tracegate-bridge
+   restart: unless-stopped
+volumes:
+ tracegate_sqlite_data:

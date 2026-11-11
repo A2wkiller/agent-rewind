@@ -1,0 +1,17 @@
+# Virtual Environment
+.venv/
+venv/
+__pycache__/
+*.pyc
+# SQLite Database & Local Session Data
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+.tracegate/active_session.json
+# Environment Variables & API Keys
+.env
+# Testing & Build Artifacts
+.pytest_cache/
+dist/
+build/
+*.egg-info/

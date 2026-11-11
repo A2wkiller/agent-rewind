@@ -1,0 +1,38 @@
+name: 💡 Feature Request
+description: Suggest an idea or enhancement for TraceGate
+labels: ["enhancement"]
+body:
+ - type: markdown
+   attributes:
+     value: |
+       Thank you for suggesting a feature! Please articulate the problem this solves and how it fits TraceGate.
+ - type: textarea
+   id: problem
+   attributes:
+     label: Problem or Pain Point
+     description: Is your feature request related to a specific limitation or workflow?
+     placeholder: "I am always frustrated when..."
+   validations:
+     required: true
+ - type: textarea
+   id: solution
+   attributes:
+     label: Proposed Solution
+     description: Describe the solution you would like to see implemented.
+   validations:
+     required: true
+ - type: textarea
+   id: alternatives
+   attributes:
+     label: Alternatives Considered
+     description: Any alternative solutions or workarounds you've explored.
+ - type: dropdown
+   id: area
+   attributes:
+     label: Primary Domain
+     options:
+       - "New LLM Provider Support (e.g., DeepSeek, Mistral)"
+       - "IDE Integration (OpenCode, Cursor, Claude Code, etc.)"
+       - "Cost & Budget Circuit Breaker Algorithms"
+       - "DAG Visualization & UI Improvements"
+       - "Performance / Storage Optimization"
