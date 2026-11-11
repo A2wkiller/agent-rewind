@@ -636,5 +636,21 @@ class TestInstallerHooks(Base):
         self.assertEqual(settings.read_text(), "{ not json")  # untouched
 
 
+@unittest.skipUnless(GIT, "git not available")
+class TestOneLineInstall(Base):
+    def test_install_sh_clones_and_installs(self):
+        home = Path(self.tmp.name) / "home"
+        home.mkdir()
+        src = Path(self.tmp.name) / "src"
+        dest = Path(self.tmp.name) / "skills"
+        env = dict(os.environ, HOME=str(home), TRACEGATE_SRC=str(src),
+                   TRACEGATE_REPO_URL=str(ROOT))
+        r = subprocess.run(["sh", str(ROOT / "install.sh"), "--dest", str(dest)],
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue((src / ".git").exists())
+        self.assertTrue((dest / "tracegate" / "SKILL.md").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
