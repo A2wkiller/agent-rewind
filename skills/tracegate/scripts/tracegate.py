@@ -214,13 +214,15 @@ def cmd_log(a):
 
 # ---------------------------------------------------------------- git snapshots
 
-def git_snapshot(cwd, sid, label):
+def git_snapshot(cwd, sid, label, full=False):
     """Snapshot the working tree as a dangling commit under refs/tracegate/.
 
     Uses a temporary index file so the user's real index and staging area are
     never touched, then stores the tree as a commit reachable from
     refs/tracegate/<sid>/<label> so it survives git gc and can be rewound to.
-    Returns the commit sha, or None when cwd is not inside a git repo.
+    With full=True, git-ignored files (for example .env, build output) are
+    forced into the snapshot too. Returns the commit sha, or None when cwd is
+    not inside a git repo.
     """
     try:
         top = git(["rev-parse", "--show-toplevel"], str(cwd)).stdout.strip()
@@ -229,7 +231,7 @@ def git_snapshot(cwd, sid, label):
     idx = Path(top) / ".git" / f"tracegate_index_{os.getpid()}"
     env = dict(os.environ, GIT_INDEX_FILE=str(idx))
     try:
-        git(["add", "-A"], top, env)
+        git(["add", "-A"] + (["-f"] if full else []), top, env)
         tree = git(["write-tree"], top, env).stdout.strip()
     except Exception:
         return None
@@ -249,10 +251,13 @@ def cmd_checkpoint(a):
     sid = resolve_session(a, a.dir)
     n = sum(1 for r in read(sid, a.dir) if r["type"] == "checkpoint") + 1
     label = a.label
-    sha = git_snapshot(a.dir, sid, f"{n}-{label}")
-    append(sid, {"type": "checkpoint", "n": n, "label": label, "commit": sha}, a.dir)
+    sha = git_snapshot(a.dir, sid, f"{n}-{label}", full=a.full)
+    append(sid, {"type": "checkpoint", "n": n, "label": label, "commit": sha,
+                 "full": bool(a.full)}, a.dir)
     print(f"checkpoint {n} '{label}': " + (f"git commit {sha} (ref refs/tracegate/{sid}/{n}-{label.replace(' ', '-')[:40]})"
                                             if sha else "not a git repo, label only"))
+    if a.full:
+        print("full snapshot: git-ignored files included")
 
 
 def find_checkpoint(recs, which):
@@ -272,6 +277,15 @@ def find_checkpoint(recs, which):
     sys.exit(f"No checkpoint '{which}'. Have: {labels}")
 
 
+def post_checkpoint_files(top, commit):
+    """Untracked files that are not part of the checkpoint tree: things
+    created (or left) after the checkpoint."""
+    tree = set(git(["ls-tree", "-r", "--name-only", commit], top).stdout.splitlines())
+    untracked = git(["status", "--porcelain"], top).stdout
+    return [l[3:] for l in untracked.splitlines()
+            if l.startswith("?? ") and l[3:] not in tree]
+
+
 def cmd_rewind(a):
     sid = resolve_session(a, a.dir)
     recs = read(sid, a.dir)
@@ -282,27 +296,59 @@ def cmd_rewind(a):
         top = git(["rev-parse", "--show-toplevel"], a.dir).stdout.strip()
     except Exception:
         sys.exit("Not inside a git repo; cannot rewind.")
+    extra = post_checkpoint_files(top, cp["commit"])
     if not a.yes:
         print(f"Would rewind '{top}' to checkpoint {cp.get('n')} '{cp['label']}' ({cp['commit'][:12]}).")
         print("This overwrites tracked files (worktree + index) with the checkpoint state.")
-        print("Files created after the checkpoint are left in place. Your commits are not touched.")
-        print("Re-run with --yes to do it. A safety snapshot of the current state is taken first.")
+        if cp.get("full"):
+            print("The checkpoint is a full snapshot: git-ignored files are restored too.")
+        if a.delete_new:
+            print("--delete-new: these files, created after the checkpoint, would be DELETED:")
+            for f in extra:
+                print(f"  {f}")
+        else:
+            print("Files created after the checkpoint are left in place (pass --delete-new to remove them).")
+        print("Your commits are not touched. A safety snapshot of the current state is taken first.")
+        print("Re-run with --yes to do it.")
         sys.exit(2)
-    safety = git_snapshot(top, sid, "pre-rewind-safety")
+    safety = git_snapshot(top, sid, "pre-rewind-safety", full=bool(cp.get("full")))
     git(["restore", "--source=" + cp["commit"], "--staged", "--worktree", "--", "."], top)
-    untracked = git(["status", "--porcelain"], top).stdout
-    new_files = [l[3:] for l in untracked.splitlines() if l.startswith("?? ")]
+    if cp.get("full"):
+        # the full snapshot may hold git-ignored files (.env etc.): they belong
+        # on disk after a full restore but NOT staged in the user's index
+        head_tree = set(git(["ls-tree", "-r", "--name-only", "HEAD"], top, check=False).stdout.splitlines())
+        snap_tree = set(git(["ls-tree", "-r", "--name-only", cp["commit"]], top).stdout.splitlines())
+        unstage = [p for p in sorted(snap_tree - head_tree)
+                   if git(["check-ignore", "--no-index", p], top, check=False).returncode == 0]
+        if unstage:
+            git(["rm", "-r", "--cached", "-q", "--ignore-unmatch", "--"] + unstage, top)
+    deleted = []
+    if a.delete_new:
+        for f in extra:
+            fp = Path(top) / f
+            if fp.is_file() or fp.is_symlink():
+                fp.unlink()
+                deleted.append(f)
+                try:
+                    os.removedirs(fp.parent)
+                except OSError:
+                    pass
     append(sid, {"type": "rewind", "to": cp["label"], "commit": cp["commit"],
-                 "safety_commit": safety, "left_in_place": new_files}, a.dir)
+                 "safety_commit": safety, "left_in_place": extra if not a.delete_new else [],
+                 "deleted": deleted}, a.dir)
     print(f"rewound to checkpoint {cp.get('n')} '{cp['label']}' ({cp['commit'][:12]})")
     print(f"current state before rewind saved as commit {safety[:12] if safety else 'unavailable'} "
           f"(ref refs/tracegate/{sid}/pre-rewind-safety)")
     print("Your branch and commits are untouched; the rewind shows up in git status.")
-    if new_files:
-        print("Created after the checkpoint, left in place:")
-        for f in new_files:
+    if deleted:
+        print("Deleted (created after the checkpoint, --delete-new):")
+        for f in deleted:
             print(f"  {f}")
-        print("Preview removing them: git clean -nd")
+    left = post_checkpoint_files(top, cp["commit"])
+    if left:
+        print("Created after the checkpoint, left in place:")
+        for f in left:
+            print(f"  {f}")
     print("Session continues. Keep logging steps.")
 
 
@@ -639,11 +685,15 @@ def main():
     x.add_argument("--files", nargs="*"); x.add_argument("--tok-in", type=int); x.add_argument("--tok-out", type=int)
     x.add_argument("--session"); x.add_argument("--dir", default="."); x.set_defaults(f=cmd_log)
     x = s.add_parser("checkpoint")
-    x.add_argument("label"); x.add_argument("--dir", default="."); x.add_argument("--session"); x.set_defaults(f=cmd_checkpoint)
+    x.add_argument("label"); x.add_argument("--dir", default="."); x.add_argument("--session")
+    x.add_argument("--full", action="store_true", help="include git-ignored files in the snapshot")
+    x.set_defaults(f=cmd_checkpoint)
     x = s.add_parser("rewind")
     x.add_argument("checkpoint", nargs="?", help="checkpoint number or label (default: latest)")
     x.add_argument("--dir", default="."); x.add_argument("--session")
     x.add_argument("--yes", action="store_true", help="actually rewind; without it only prints the plan")
+    x.add_argument("--delete-new", action="store_true",
+                   help="also delete files created after the checkpoint (still needs --yes)")
     x.set_defaults(f=cmd_rewind)
     x = s.add_parser("cost")
     x.add_argument("--budget", type=float, help="USD limit; exits 1 when logged cost is over it")

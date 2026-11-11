@@ -268,6 +268,47 @@ class TestClean(Base):
         self.assertIn("Nothing to clean", r.stdout)
 
 
+@unittest.skipUnless(GIT, "git not available")
+class TestFullRestoreAndDeleteNew(Base):
+    def setUp(self):
+        super().setUp()
+        self.make_git_repo()
+        (self.proj / ".gitignore").write_text(".env\n")
+        subprocess.run([GIT, "add", ".gitignore"], cwd=self.proj, check=True)
+        subprocess.run([GIT, "commit", "-qm", "ignore .env"], cwd=self.proj, check=True)
+        (self.proj / ".env").write_text("SECRET=one\n")
+        self.start_session(self.proj)
+
+    def status(self):
+        return subprocess.run([GIT, "status", "--porcelain"], cwd=self.proj,
+                              capture_output=True, text=True, check=True).stdout
+
+    def test_full_checkpoint_restores_ignored_files_without_staging_them(self):
+        self.tg("checkpoint", "with-env", "--full", "--dir", str(self.proj), check=True)
+        (self.proj / ".env").write_text("SECRET=two\n")
+        self.tg("rewind", "with-env", "--dir", str(self.proj), "--yes", check=True)
+        self.assertEqual((self.proj / ".env").read_text(), "SECRET=one\n")
+        # the ignored file is back on disk but must not be staged as tracked
+        self.assertNotIn(".env", self.status())
+
+    def test_plain_checkpoint_leaves_ignored_files_alone(self):
+        self.tg("checkpoint", "plain", "--dir", str(self.proj), check=True)
+        (self.proj / ".env").write_text("SECRET=two\n")
+        self.tg("rewind", "plain", "--dir", str(self.proj), "--yes", check=True)
+        self.assertEqual((self.proj / ".env").read_text(), "SECRET=two\n")
+
+    def test_delete_new_requires_yes_then_deletes(self):
+        self.tg("checkpoint", "c1", "--dir", str(self.proj), check=True)
+        (self.proj / "scratch.txt").write_text("temp\n")
+        r = self.tg("rewind", "c1", "--dir", str(self.proj), "--delete-new")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("would be DELETED", r.stdout)
+        self.assertTrue((self.proj / "scratch.txt").exists())
+        r = self.tg("rewind", "c1", "--dir", str(self.proj), "--delete-new", "--yes", check=True)
+        self.assertIn("Deleted", r.stdout)
+        self.assertFalse((self.proj / "scratch.txt").exists())
+
+
 class TestHooks(Base):
     def hook(self, event, tool, payload, check=True):
         return self.tg("hook", event, "--tool", tool, stdin=json.dumps(payload), check=check)
