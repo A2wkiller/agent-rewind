@@ -10,7 +10,7 @@
 Add --always-on to also append a one-line instruction to the tool's global
 instruction file so the skill is read on the first message every session.
 """
-import argparse, shutil
+import argparse, shutil, sys
 from pathlib import Path
 
 H = Path.home()
@@ -37,8 +37,14 @@ def main():
     skills, instr = (Path(a.dest), None) if a.dest else TARGETS[a.tool]
     out = skills / "tracegate"
     src = Path(__file__).resolve().parent
+    if out.is_symlink():
+        sys.exit(f"refusing to replace {out}: it is a symlink. Remove it yourself and re-run.")
     if out.exists():
+        # only ever delete the tracegate folder the installer itself manages
+        if out.name != "tracegate" or not (out / "SKILL.md").exists():
+            sys.exit(f"refusing to replace {out}: does not look like a tracegate install. Move it aside yourself.")
         shutil.rmtree(out)
+    skills.mkdir(parents=True, exist_ok=True)
     shutil.copytree(src, out, ignore=shutil.ignore_patterns("__pycache__", "install.py"))
     print(f"installed to {out}")
     if a.always_on and instr:

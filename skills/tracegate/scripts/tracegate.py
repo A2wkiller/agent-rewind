@@ -7,7 +7,7 @@ Commands:
   checkpoint  record a git tree snapshot of the project (no commit, no staging change)
   end         close the session and print the backtracking report
   report      print the report for a session (default: latest)
-Data lives in ~/.tracegate/sessions/ (outside your project).
+Data lives in ~/.tracegate/sessions/ (outside your project, mode 0700).
 """
 import argparse, json, os, subprocess, sys, time, uuid
 from pathlib import Path
@@ -32,16 +32,27 @@ def latest():
 
 def append(sid, rec):
     SESS.mkdir(parents=True, exist_ok=True)
+    os.chmod(SESS, 0o700)
     rec["t"] = now()
-    with open(sfile(sid), "a") as f:
+    p = sfile(sid)
+    with open(p, "a") as f:
         f.write(json.dumps(rec) + "\n")
+    os.chmod(p, 0o600)
 
 
 def read(sid):
     p = sfile(sid)
     if not p.exists():
         sys.exit(f"No such session: {sid}")
-    return [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
+    out = []
+    for line in p.read_text().splitlines():
+        if not line.strip():
+            continue
+        try:
+            out.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue  # skip a corrupted line rather than lose the whole log
+    return out
 
 
 def usd(n):
@@ -89,17 +100,19 @@ def cmd_log(a):
 
 
 def git_tree(cwd):
-    env = dict(os.environ, GIT_INDEX_FILE=str(Path(cwd) / ".git" / "tracegate_index"))
     try:
         top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=cwd, capture_output=True, text=True, check=True).stdout.strip()
-        idx = Path(top) / ".git" / "tracegate_index"
-        env["GIT_INDEX_FILE"] = str(idx)
-        subprocess.run(["git", "add", "-A"], cwd=top, env=env, capture_output=True, check=True)
-        sha = subprocess.run(["git", "write-tree"], cwd=top, env=env, capture_output=True, text=True, check=True).stdout.strip()
-        idx.unlink(missing_ok=True)
-        return sha
     except Exception:
         return None
+    idx = Path(top) / ".git" / f"tracegate_index_{os.getpid()}"
+    env = dict(os.environ, GIT_INDEX_FILE=str(idx))
+    try:
+        subprocess.run(["git", "add", "-A"], cwd=top, env=env, capture_output=True, check=True)
+        return subprocess.run(["git", "write-tree"], cwd=top, env=env, capture_output=True, text=True, check=True).stdout.strip()
+    except Exception:
+        return None
+    finally:
+        idx.unlink(missing_ok=True)  # never leave a stale temp index in .git
 
 
 def cmd_checkpoint(a):
