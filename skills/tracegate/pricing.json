@@ -1,0 +1,6 @@
+{
+  "_note": "USD per 1M tokens. Raw provider prices, no currency conversion. 'example-model' is a made-up placeholder. Add real models from the provider's pricing page; prices change.",
+  "models": {
+    "example-model": { "input_per_1m": 2.0, "output_per_1m": 10.0 }
+  }
+}
