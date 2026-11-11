@@ -1,61 +1,47 @@
-name: 🐛 Bug Report
-description: Create a report to help us fix a bug in TraceGate
+name: Bug report
+description: Report a bug in TraceGate
 labels: ["bug"]
 body:
- - type: markdown
-   attributes:
-     value: |
-       Thanks for taking the time to report an issue! Please provide as much detail as possible.
- - type: input
-   id: version
-   attributes:
-     label: TraceGate Version / Commit
-     description: What version or Git commit SHA of TraceGate are you running?
-     placeholder: "e.g., 1.0.0 or commit abc1234"
-   validations:
-     required: true
- - type: dropdown
-   id: component
-   attributes:
-     label: Affected Component
-     options:
-       - "MCP Server (tracegate_mcp.py)"
-       - "WebSocket Bridge & UI (tracegate_bridge.py / index.html)"
-       - "Token Estimator / Pricing Engine"
-       - "Git Shadow-Tree & Backtracker (tracegate_universal.py)"
-       - "Agent Tool Registry"
-       - "CLI / Docker Setup"
-   validations:
-     required: true
- - type: textarea
-   id: description
-   attributes:
-     label: Describe the Bug
-     description: A clear and concise description of what the bug is.
-   validations:
-     required: true
- - type: textarea
-   id: reproduction
-   attributes:
-     label: Steps to Reproduce
-     description: Detailed steps to reproduce the behavior.
-     placeholder: |
-       1. Run `tracegate up`
-       2. Set ceiling to 1500 tokens
-       3. Trigger tool call `read_workspace_file`
-       4. Observe failure...
-   validations:
-     required: true
- - type: textarea
-   id: expected
-   attributes:
-     label: Expected Behavior
-     description: What you expected to happen.
-   validations:
-     required: true
- - type: textarea
-   id: logs
-   attributes:
-     label: Terminal Logs / Trace Output
-     description: Please copy and paste any relevant logs, ASCII DAG output, or tracebacks here.
-     render: shell
+  - type: input
+    id: version
+    attributes:
+      label: Commit or version
+      placeholder: "e.g. commit 2085890"
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected part
+      options:
+        - "tracegate.py (start / log / cost / end / report)"
+        - "checkpoint or rewind (git snapshots)"
+        - "install.py"
+        - "SKILL.md (the AI's instructions)"
+        - "pricing.json"
+        - "docs"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `python3 tracegate.py start ...`
+        2. Run `python3 tracegate.py rewind ...`
+        3. See error...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Terminal output
+      description: Paste the relevant output. Remove anything private first.
+      render: shell

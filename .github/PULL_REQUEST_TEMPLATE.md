@@ -1,17 +1,10 @@
 ## Description
-<!-- Provide a clear summary of what this PR does, why it is needed, and link any related issues. -->
+<!-- What does this PR change and why? Link related issues. -->
 Fixes #(issue)
-## Type of Change
-- [ ] 🐛 Bug fix (non-breaking change fixing an issue)
-- [ ] ✨ New feature (non-breaking change adding functionality)
-- [ ] 💥 Breaking change (fix or feature causing existing behavior to change)
-- [ ] 📝 Documentation update
-- [ ] 🧪 Tests / CI optimization
-## Architectural Checklist
-- [ ] **DAG Invariant Maintained**: No retroactive mutation of historical nodes in `tracegate_dag.sqlite3`.
-- [ ] **Multi-Provider Consistency**: Verified compatibility across supported provider formats (Anthropic, Gemini, O
-- [ ] **Token Calculation**: Token counts verified via native tokenizers or standard test fixtures.
-- [ ] **Tests Added**: New functionality is covered in `test_tracegate_agentic_loop.py`.
-- [ ] **All Tests Pass**: Ran `pytest test_tracegate_agentic_loop.py -v` locally with zero failures.
-## Verification & Screenshots
-<!-- Paste your test output (`pytest`) or provide a screenshot if making UI changes. -->
+
+## Checklist
+- [ ] Runtime code is still Python 3 standard library only, no network, no API keys
+- [ ] New behavior is covered by a real test in `tests/` (runs the actual script, no mocks of the thing being tested)
+- [ ] `python3 -m unittest discover -s tests -v` passes locally
+- [ ] User git state is untouched: no commits on the user's branch, real index and staging area never modified
+- [ ] README "Honest status" updated if what was verified has changed
