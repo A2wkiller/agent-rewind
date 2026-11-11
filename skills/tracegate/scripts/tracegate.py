@@ -352,6 +352,58 @@ def cmd_rewind(a):
     print("Session continues. Keep logging steps.")
 
 
+# ---------------------------------------------------------------- branches
+
+def branch_ref(name):
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", name or ""):
+        sys.exit("Branch name: letters, digits, dot, dash, underscore only.")
+    return f"refs/tracegate/branches/{name}"
+
+
+def cmd_branch(a):
+    """Name the current project state so you can come back to it after
+    rewinding and trying another path."""
+    sid = resolve_session(a, a.dir)
+    ref = branch_ref(a.name)
+    sha = git_snapshot(a.dir, "branches", a.name, full=a.full)
+    if not sha:
+        sys.exit("Not inside a git repo; cannot branch.")
+    append(sid, {"type": "branch", "name": a.name, "commit": sha,
+                 "full": bool(a.full)}, a.dir)
+    print(f"branch '{a.name}': git commit {sha} (ref {ref})")
+    print(f"Try another path now; come back with: python3 tracegate.py switch {a.name} --yes")
+
+
+def cmd_switch(a):
+    """Restore the project to a named branch state (safety snapshot first),
+    then continue the session from there."""
+    sid = resolve_session(a, a.dir)
+    ref = branch_ref(a.name)
+    try:
+        top = git(["rev-parse", "--show-toplevel"], a.dir).stdout.strip()
+    except Exception:
+        sys.exit("Not inside a git repo; cannot switch.")
+    commit = git(["rev-parse", "--verify", ref], top, check=False).stdout.strip()
+    if not commit:
+        out = git(["for-each-ref", "refs/tracegate/branches/", "--format=%(refname:short)"],
+                  top).stdout.split()
+        sys.exit(f"No branch '{a.name}'. Have: {', '.join(out) or 'none'}")
+    if not a.yes:
+        print(f"Would switch '{top}' to branch '{a.name}' ({commit[:12]}).")
+        print("This overwrites tracked files (worktree + index). Files created since are left in place.")
+        print("Re-run with --yes to do it. A safety snapshot of the current state is taken first.")
+        sys.exit(2)
+    safety = git_snapshot(top, sid, "pre-switch-safety")
+    git(["restore", "--source=" + commit, "--staged", "--worktree", "--", "."], top)
+    append(sid, {"type": "switch", "to": a.name, "commit": commit,
+                 "safety_commit": safety}, a.dir)
+    print(f"switched to branch '{a.name}' ({commit[:12]})")
+    print(f"state before switching saved as commit {safety[:12] if safety else 'unavailable'} "
+          f"(ref refs/tracegate/{sid}/pre-switch-safety)")
+    print("Your branch and commits are untouched; the switch shows up in git status.")
+    print("Session continues. Keep logging steps.")
+
+
 # ---------------------------------------------------------------- measured usage
 
 def find_transcript(recs, tool):
@@ -521,6 +573,15 @@ def build_report(sid, cwd=None):
         L += [f"  - {c.get('n')}:{c['label']} @ {c['t']}: {c['commit'] or 'no git'}" for c in cps]
         L.append(f"  Rewind to one: python3 tracegate.py rewind <n|label> --yes")
         L.append(f"  Inspect first: git show <commit> ; diff: git diff HEAD <commit>")
+    branches = [r for r in recs if r["type"] == "branch"]
+    switches = [r for r in recs if r["type"] == "switch"]
+    if branches or switches:
+        L += ["", "Named branches (alternative paths you kept):"]
+        for b in branches:
+            L.append(f"  - {b['name']} @ {b['t']}: {b['commit']}")
+        for s_ in switches:
+            L.append(f"     {s_['t']} switch: to '{s_['to']}' ({(s_['commit'] or '')[:12]})")
+        L.append("  Switch to one: python3 tracegate.py switch <name> --yes")
     L += ["", f"Files touched: {', '.join(files) if files else 'none logged'}"]
     if cost is not None:
         L.append(f"Tokens: {ti:,} in, {to:,} out -> {usd(cost)} (USD, {SRC_LABEL[source]})")
@@ -695,6 +756,14 @@ def main():
     x.add_argument("--delete-new", action="store_true",
                    help="also delete files created after the checkpoint (still needs --yes)")
     x.set_defaults(f=cmd_rewind)
+    x = s.add_parser("branch", help="name the current state so you can switch back to it")
+    x.add_argument("name"); x.add_argument("--dir", default="."); x.add_argument("--session")
+    x.add_argument("--full", action="store_true", help="include git-ignored files in the snapshot")
+    x.set_defaults(f=cmd_branch)
+    x = s.add_parser("switch", help="restore the project to a named branch state")
+    x.add_argument("name"); x.add_argument("--dir", default="."); x.add_argument("--session")
+    x.add_argument("--yes", action="store_true", help="actually switch; without it only prints the plan")
+    x.set_defaults(f=cmd_switch)
     x = s.add_parser("cost")
     x.add_argument("--budget", type=float, help="USD limit; exits 1 when logged cost is over it")
     x.add_argument("--session"); x.add_argument("--dir", default="."); x.set_defaults(f=cmd_cost)

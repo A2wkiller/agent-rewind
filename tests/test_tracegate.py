@@ -309,6 +309,40 @@ class TestFullRestoreAndDeleteNew(Base):
         self.assertFalse((self.proj / "scratch.txt").exists())
 
 
+@unittest.skipUnless(GIT, "git not available")
+class TestBranchAndSwitch(Base):
+    def setUp(self):
+        super().setUp()
+        self.make_git_repo()
+        self.start_session(self.proj)
+
+    def test_branch_and_switch_back(self):
+        r = self.tg("branch", "idea-a", "--dir", str(self.proj), check=True)
+        self.assertIn("branch 'idea-a'", r.stdout)
+        (self.proj / "app.py").write_text("print('idea-b')\n")
+        r = self.tg("switch", "idea-a", "--dir", str(self.proj))
+        self.assertEqual(r.returncode, 2)  # plan only
+        self.assertEqual((self.proj / "app.py").read_text(), "print('idea-b')\n")
+        self.tg("switch", "idea-a", "--dir", str(self.proj), "--yes", check=True)
+        self.assertEqual((self.proj / "app.py").read_text(), "print('v1')\n")
+        rep = self.tg("report", "--dir", str(self.proj), check=True).stdout
+        self.assertIn("idea-a", rep)
+        self.assertIn("switch: to 'idea-a'", rep)
+
+    def test_switch_unknown_branch_lists_existing(self):
+        self.tg("branch", "idea-a", "--dir", str(self.proj), check=True)
+        r = self.tg("switch", "nope", "--dir", str(self.proj), "--yes")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("idea-a", r.stderr)
+
+    def test_branch_ref_is_under_refs_tracegate_branches(self):
+        self.tg("branch", "idea-a", "--dir", str(self.proj), check=True)
+        refs = subprocess.run([GIT, "for-each-ref", "refs/tracegate/branches/",
+                               "--format=%(refname)"], cwd=self.proj,
+                              capture_output=True, text=True, check=True).stdout
+        self.assertIn("refs/tracegate/branches/idea-a", refs)
+
+
 class TestHooks(Base):
     def hook(self, event, tool, payload, check=True):
         return self.tg("hook", event, "--tool", tool, stdin=json.dumps(payload), check=check)
