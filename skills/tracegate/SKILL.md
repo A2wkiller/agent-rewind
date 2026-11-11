@@ -23,14 +23,24 @@ Do this before anything else, once per session:
 ## 2. During the session
 
 - After each meaningful step: `python3 scripts/tracegate.py log <thought|tool|edit|note> "<what and why>" --files <paths>`
-- Before a risky or large edit: `python3 scripts/tracegate.py checkpoint "<label>"` (stores a git tree snapshot, no commit, does not touch the user's staging area).
+- Before a risky or large edit: `python3 scripts/tracegate.py checkpoint "<label>"` (stores a git snapshot under `refs/tracegate/`, no commit on the user's branch, does not touch the staging area).
 - Keep entries short. Log honestly, including mistakes and reversals. That is what backtracking means here.
+- Never log secrets: no API keys, passwords, tokens, or private file contents. Log what you did, not the data.
+- If the user gave a cost limit, check with `python3 scripts/tracegate.py cost --budget <usd>` after big steps. When it says OVER BUDGET, stop and ask the user whether to continue.
 
-## 3. When the user asks "tell me about my backtracking" (or the session ends)
+## 3. Going back: rewind and continue
+
+When the user wants to undo part of the session ("go back to before X", "undo the last change"):
+
+1. Confirm with the user first, then run `python3 scripts/tracegate.py rewind <n|label> --yes` (use the checkpoint number or label from the log).
+2. The script takes a safety snapshot of the current state, restores the project files to the checkpoint, and keeps the session going. Your branch and commits are not touched.
+3. Tell the user what was restored and what was left in place, then continue the task from there.
+
+## 4. When the user asks "tell me about my backtracking" (or the session ends)
 
 Run `python3 scripts/tracegate.py end --summary "<one line>"` and show the user the report it prints. Add a short plain-language summary: what you tried, what you undid, what changed.
 
 ## Limits
 
 - This skill only logs what you tell it to. It does not intercept tool calls.
-- Rewinding is manual: use the git commands printed in the report.
+- Rewind restores tracked files to the checkpoint. Files created after the checkpoint are left in place, and ignored files (for example `.env`) are not part of snapshots.
