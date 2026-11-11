@@ -343,6 +343,22 @@ class TestBranchAndSwitch(Base):
         self.assertIn("refs/tracegate/branches/idea-a", refs)
 
 
+class TestPerCheckpointCost(Base):
+    def test_report_shows_cost_per_checkpoint(self):
+        self.tg("start", "--task", "t", "--price-in", "2", "--price-out", "10",
+                "--dir", str(self.proj), check=True)
+        self.tg("log", "tool", "step one", "--tok-in", "1000000", "--tok-out", "0",
+                "--dir", str(self.proj), check=True)  # $2
+        r = self.tg("checkpoint", "after-step-1", "--dir", str(self.proj), check=True)
+        self.assertIn("cost so far: $2.00", r.stdout)
+        self.tg("log", "tool", "step two", "--tok-in", "0", "--tok-out", "100000",
+                "--dir", str(self.proj), check=True)  # +$1
+        self.tg("checkpoint", "after-step-2", "--dir", str(self.proj), check=True)
+        rep = self.tg("report", "--dir", str(self.proj), check=True).stdout
+        self.assertIn("cost here: $2.00", rep)
+        self.assertIn("cost here: $3.00, +$1.00 since previous", rep)
+
+
 class TestHooks(Base):
     def hook(self, event, tool, payload, check=True):
         return self.tg("hook", event, "--tool", tool, stdin=json.dumps(payload), check=check)

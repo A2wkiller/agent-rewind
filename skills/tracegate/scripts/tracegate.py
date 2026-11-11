@@ -249,15 +249,20 @@ def git_snapshot(cwd, sid, label, full=False):
 
 def cmd_checkpoint(a):
     sid = resolve_session(a, a.dir)
-    n = sum(1 for r in read(sid, a.dir) if r["type"] == "checkpoint") + 1
+    recs = read(sid, a.dir)
+    n = sum(1 for r in recs if r["type"] == "checkpoint") + 1
     label = a.label
+    ti, to, pi, po, cost, source = session_cost(recs)
     sha = git_snapshot(a.dir, sid, f"{n}-{label}", full=a.full)
     append(sid, {"type": "checkpoint", "n": n, "label": label, "commit": sha,
-                 "full": bool(a.full)}, a.dir)
+                 "full": bool(a.full), "tok_in": ti, "tok_out": to,
+                 "cost_usd": cost, "cost_source": source}, a.dir)
     print(f"checkpoint {n} '{label}': " + (f"git commit {sha} (ref refs/tracegate/{sid}/{n}-{label.replace(' ', '-')[:40]})"
                                             if sha else "not a git repo, label only"))
     if a.full:
         print("full snapshot: git-ignored files included")
+    if cost is not None:
+        print(f"cost so far: {usd(cost)} ({ti:,} in, {to:,} out, {SRC_LABEL[source]})")
 
 
 def find_checkpoint(recs, which):
@@ -570,7 +575,18 @@ def build_report(sid, cwd=None):
         L.append(f"     {r['t']} rewind: back to '{r['to']}' ({(r['commit'] or '')[:12]})")
     if cps:
         L += ["", "Checkpoints (git snapshots; your branch is untouched):"]
-        L += [f"  - {c.get('n')}:{c['label']} @ {c['t']}: {c['commit'] or 'no git'}" for c in cps]
+        prev_cost = 0.0
+        for i, c in enumerate(cps):
+            line = f"  - {c.get('n')}:{c['label']} @ {c['t']}: {c['commit'] or 'no git'}"
+            if c.get("full"):
+                line += " (full: ignored files included)"
+            if c.get("cost_usd") is not None:
+                line += f"  [cost here: {usd(c['cost_usd'])}"
+                if i:
+                    line += f", +{usd(c['cost_usd'] - prev_cost)} since previous"
+                line += "]"
+                prev_cost = c["cost_usd"]
+            L.append(line)
         L.append(f"  Rewind to one: python3 tracegate.py rewind <n|label> --yes")
         L.append(f"  Inspect first: git show <commit> ; diff: git diff HEAD <commit>")
     branches = [r for r in recs if r["type"] == "branch"]
