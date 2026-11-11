@@ -3,7 +3,7 @@
 subprocesses against temp directories and real git repos. No mocks, no
 invented data. Run: python3 -m unittest discover -s tests -v
 """
-import json, os, shutil, stat, subprocess, sys, tempfile, unittest
+import json, os, shutil, stat, subprocess, sys, tempfile, time, unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -12,12 +12,12 @@ INSTALLER = ROOT / "skills" / "tracegate" / "install.py"
 GIT = shutil.which("git")
 
 
-def run(args, env_extra=None, cwd=None, check=False):
+def run(args, env_extra=None, cwd=None, check=False, stdin=None):
     env = dict(os.environ)
     if env_extra:
         env.update(env_extra)
     r = subprocess.run([sys.executable] + args, capture_output=True, text=True,
-                       env=env, cwd=cwd)
+                       env=env, cwd=cwd, input=stdin)
     if check and r.returncode != 0:
         raise AssertionError(f"{args} failed ({r.returncode}): {r.stderr}")
     return r
@@ -35,10 +35,12 @@ class Base(unittest.TestCase):
     def tg(self, *args, **kw):
         return run([str(SCRIPT), *args], env_extra=self.env, **kw)
 
-    def start_session(self):
-        return self.tg("start", "--model", "claude-sonnet-5.5", "--tool", "claude-code",
-                       "--task", "test task", "--est-in", "50000", "--est-out", "8000",
-                       check=True)
+    def start_session(self, d=None):
+        args = ["start", "--model", "claude-sonnet-5.5", "--tool", "claude-code",
+                "--task", "test task", "--est-in", "50000", "--est-out", "8000"]
+        if d is not None:
+            args += ["--dir", str(d)]
+        return self.tg(*args, check=True)
 
     def make_git_repo(self):
         subprocess.run([GIT, "init", "-q"], cwd=self.proj, check=True)
@@ -50,7 +52,7 @@ class Base(unittest.TestCase):
 
     def sessions(self):
         d = self.home / "sessions"
-        return sorted(d.glob("*.jsonl")) if d.exists() else []
+        return sorted(d.rglob("*.jsonl")) if d.exists() else []
 
 
 class TestStartAndCost(Base):
@@ -91,6 +93,42 @@ class TestStartAndCost(Base):
         self.assertIn("Ask the user whether to continue", over.stdout)
 
 
+class TestProjectSessions(Base):
+    def test_start_resumes_open_session_in_same_project(self):
+        self.start_session(self.proj)
+        r = self.start_session(self.proj)
+        self.assertIn("RESUMED", r.stdout)
+        self.assertEqual(len(self.sessions()), 1)
+
+    def test_start_after_end_opens_a_new_session(self):
+        self.start_session(self.proj)
+        self.tg("end", "--dir", str(self.proj), check=True)
+        r = self.start_session(self.proj)
+        self.assertIn("STARTED", r.stdout)
+        self.assertEqual(len(self.sessions()), 2)
+
+    def test_new_flag_forces_a_fresh_session(self):
+        self.start_session(self.proj)
+        r = self.tg("start", "--new", "--dir", str(self.proj), check=True)
+        self.assertIn("STARTED", r.stdout)
+        self.assertEqual(len(self.sessions()), 2)
+
+    def test_different_projects_get_different_sessions(self):
+        other = Path(self.tmp.name) / "other"
+        other.mkdir()
+        self.start_session(self.proj)
+        self.start_session(other)
+        self.assertEqual(len(self.sessions()), 2)
+        self.assertNotEqual(self.sessions()[0].parent, self.sessions()[1].parent)
+
+    def test_commands_follow_the_dir_session(self):
+        self.start_session(self.proj)
+        r = self.tg("log", "note", "hello", "--dir", str(self.proj), check=True)
+        self.assertIn("logged step", r.stdout)
+        rep = self.tg("report", "--dir", str(self.proj), check=True).stdout
+        self.assertIn("hello", rep)
+
+
 class TestLoggingAndReport(Base):
     def test_log_and_end_report(self):
         self.start_session()
@@ -107,7 +145,8 @@ class TestLoggingAndReport(Base):
         for f in self.sessions():
             mode = stat.S_IMODE(f.stat().st_mode)
             self.assertEqual(mode, 0o600, oct(mode))
-        dmode = stat.S_IMODE((self.home / "sessions").stat().st_mode)
+        d = self.sessions()[0].parent
+        dmode = stat.S_IMODE(d.stat().st_mode)
         self.assertEqual(dmode, 0o700, oct(dmode))
 
     def test_corrupted_log_line_does_not_crash_report(self):
@@ -124,7 +163,7 @@ class TestCheckpointsAndRewind(Base):
     def setUp(self):
         super().setUp()
         self.make_git_repo()
-        self.start_session()
+        self.start_session(self.proj)
 
     def refs(self):
         r = subprocess.run([GIT, "for-each-ref", "refs/tracegate/", "--format=%(refname)"],
@@ -167,8 +206,8 @@ class TestCheckpointsAndRewind(Base):
         # safety snapshot exists
         self.assertTrue(any("pre-rewind-safety" in ref for ref in self.refs()))
         # session continues: logging still works and report shows the rewind
-        self.tg("log", "note", "after rewind", check=True)
-        rep = self.tg("report", check=True).stdout
+        self.tg("log", "note", "after rewind", "--dir", str(self.proj), check=True)
+        rep = self.tg("report", "--dir", str(self.proj), check=True).stdout
         self.assertIn("Rewinds: 1", rep)
         self.assertIn("back to 'c1'", rep)
 
@@ -182,8 +221,51 @@ class TestCheckpointsAndRewind(Base):
     def test_checkpoint_outside_git_repo_is_label_only(self):
         plain = Path(self.tmp.name) / "plain"
         plain.mkdir()
+        self.start_session(plain)  # sessions are per project: this dir needs its own
         r = self.tg("checkpoint", "nogit", "--dir", str(plain), check=True)
         self.assertIn("not a git repo, label only", r.stdout)
+
+
+@unittest.skipUnless(GIT, "git not available")
+class TestClean(Base):
+    def setUp(self):
+        super().setUp()
+        self.make_git_repo()
+        self.start_session(self.proj)
+        self.tg("checkpoint", "c1", "--dir", str(self.proj), check=True)
+
+    def refs(self):
+        r = subprocess.run([GIT, "for-each-ref", "refs/tracegate/", "--format=%(refname)"],
+                           cwd=self.proj, capture_output=True, text=True, check=True)
+        return r.stdout.split()
+
+    def test_clean_requires_yes(self):
+        r = self.tg("clean", "--dir", str(self.proj))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("Re-run with --yes", r.stdout)
+        self.assertTrue(self.refs())  # nothing deleted
+
+    def test_clean_removes_refs_and_old_logs_keeps_recent(self):
+        old_session = self.sessions()[0]
+        past = time.time() - 40 * 86400
+        os.utime(old_session, (past, past))
+        # a second, recent session in another project must survive
+        other = Path(self.tmp.name) / "other"
+        other.mkdir()
+        self.start_session(other)
+        r = self.tg("clean", "--dir", str(self.proj), "--yes", check=True)
+        self.assertIn("cleaned:", r.stdout)
+        self.assertFalse(self.refs())
+        self.assertFalse(old_session.exists())
+        remaining = self.sessions()
+        self.assertEqual(len(remaining), 1)
+        self.assertIn("other", remaining[0].parent.name)
+
+    def test_clean_nothing_to_do(self):
+        plain = Path(self.tmp.name) / "plain"
+        plain.mkdir()
+        r = self.tg("clean", "--dir", str(plain), check=True)
+        self.assertIn("Nothing to clean", r.stdout)
 
 
 class TestInstaller(Base):
