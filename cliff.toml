@@ -1,0 +1,36 @@
+# git-cliff configuration: conventional-commit changelog for TraceGate releases.
+# https://git-cliff.org/docs/configuration
+
+[changelog]
+header = """
+# Changelog
+All notable changes to this project are documented here.
+
+"""
+body = """
+{% for group, commits in commits | group_by(attribute="group") %}
+    ### {{ group | striptags | trim | upper_first }}
+    {% for commit in commits %}
+        - {{ commit.message | upper_first }} ({{ commit.id | truncate(length=7, end="") }})\
+    {% endfor %}
+{% endfor %}
+"""
+trim = true
+footer = ""
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+commit_parsers = [
+    { message = "^feat", group = "Features" },
+    { message = "^fix", group = "Bug Fixes" },
+    { message = "^perf", group = "Performance" },
+    { message = "^refactor", group = "Refactor" },
+    { message = "^docs", group = "Documentation" },
+    { message = "^test", group = "Testing" },
+    { message = "^ci", group = "CI/CD" },
+    { message = "^chore", group = "Miscellaneous" },
+    { message = "^build", group = "Build" },
+    { body = ".*security", group = "Security" },
+]
+tag_pattern = "v[0-9].*"
