@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![tests](https://github.com/A2wkiller/agent-rewind/actions/workflows/tests.yml/badge.svg)](https://github.com/A2wkiller/agent-rewind/actions/workflows/tests.yml)
 
-![20-second CLI demo: checkpoint, broken edit, rewind, working file restored](docs/images/demo.gif)
+![25-second demo: why agent-rewind exists, save, edit, rewind, working again](docs/images/demo.gif)
 
 *Real CLI output in a disposable git repo. This shows the helper, not hooks firing inside a live AI coding tool.*
 
