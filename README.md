@@ -1,99 +1,43 @@
-# AI Token Firewall and Backtracker (codename: TraceGate)
+# TraceGate
 
-An experimental proxy layer for LLM coding sessions. It estimates token and
-API cost before a run starts, enforces a budget ceiling mid-stream, and can
-rewind a session to any earlier step by forking a DAG of recorded events
-(thoughts, tool calls, tool results, output).
+A plug-and-play skill for AI coding tools (Claude Code, Gemini CLI, Antigravity, OpenCode, Codex). It makes the AI keep a backtracking log of your session and give you a USD cost estimate at the start.
 
-Built for Anthropic Claude, Google Gemini, and OpenAI, with multi-turn tool
-calling and Assistant-Prefill continuation (resume mid-sentence after a
-budget pause instead of regenerating).
+No API keys. No `.env`. No provider API calls. No network. Python 3 standard library only.
 
-## Status
+## What it does
 
-- Session backtracking (DAG trace + counterfactual fork): implemented.
-- Token/cost prediction (pre-flight estimates): in progress.
-- **Not yet run end-to-end.** This code was recovered from an AI chat export
-  and has not been executed as a whole. Expect wiring gaps (see below).
+1. **First message of a session:** the AI reads the skill, tells you backtracking has started, and gives a rough cost estimate. The estimate uses the model's price per 1M input and output tokens in raw USD (for example $2 in / $10 out). No currency conversion.
+2. **During the session:** the AI logs steps (thoughts, tool calls, edits) and can store git tree snapshots as checkpoints. Checkpoints do not commit or touch your staging area.
+3. **End of session:** ask the AI "tell me about my backtracking". It prints the report: steps, files touched, checkpoints, logged token cost.
 
-## Known gaps (please read before running)
-
-- `tracegate_mcp.py` (the FastMCP server, SQLite DAG store, and pre-flight
-  estimator) is imported by every module but is **not included** here yet.
-- `index.html` (the web UI) is referenced by the Dockerfile but is not
-  included yet.
-- `tracegate_bridge.py` is missing its FastAPI app, WebSocket endpoints, and
-  the `MANAGER` connection manager; the streaming, tool-loop, and pipeline
-  logic is present. Its `MultiProviderStreamRouter` also lacks the
-  `_stream_anthropic` / `_stream_gemini` / `_stream_openai` methods (they only
-  exist in `llm_stream_router.py`), so the bridge router cannot stream yet.
-- `CONTRIBUTING.md` was recovered from a PDF export and is partially
-  garbled; treat it as a rough draft.
-
-## Bugs found by the test suite (tracked as `xfail`)
-
-1. `llm_stream_router._stream_gemini`: when a Gemini function-call part has
-   `id=None`, `getattr(fn, "id", fallback)` returns `None` instead of the
-   `call_<name>` fallback, so the tool_call_id is lost.
-2. `tracegate_universal.GitShadowBacktracker`: `capture_snapshot` runs
-   `git add -A` with no exclusions, so the shadow tree captures the TraceGate
-   SQLite DB (and `.tracegate/` state) itself; `restore_snapshot` then
-   rewinds the DAG database and erases the nodes a rewind needs. The shadow
-   index should exclude the DB and `.tracegate/`.
-3. `tracegate_bridge.MultiProviderStreamRouter.stream_turn` dispatches to
-   provider stream methods the class does not define (see Known gaps).
+Session logs are stored in `~/.tracegate/sessions/`, outside your project.
 
 ## Install
 
 ```bash
-# Python 3.11+
-uv pip install -e ".[dev]"   # or: pip install -e ".[dev]"
-cp .env.example .env          # then fill in your keys
+git clone https://github.com/A2wkiller/ai-token-firewall.git
+cd ai-token-firewall
+python3 skills/tracegate/install.py claude-code --always-on
+# also: codex | gemini-cli | antigravity | opencode | --dest <folder>
 ```
 
-Environment variables (see `.env.example`):
+`--always-on` adds one line to the tool's global instruction file telling it to read the skill at the first message. Without it, the tool decides whether to load the skill from its description.
 
-- `ANTHROPIC_API_KEY`
-- `GEMINI_API_KEY`
-- `OPENAI_API_KEY`
-- `GITHUB_TOKEN` (optional, for indexing GitHub SKILL.md repos)
-- `TRACEGATE_USD_TO_INR` (optional, cost display)
+Add real model prices to `skills/tracegate/pricing.json` (USD per 1M tokens). The shipped entry is a made-up example.
 
-## Tests
+## Honest status
 
-```bash
-pip install -e ".[dev]"
-pytest -v
-```
+What was actually run (Linux sandbox, Python 3, fake HOME):
+- the installer for all five targets, including `--always-on` and re-running it
+- `tracegate.py` start / log / checkpoint / end, including the USD estimate math and the git checkpoint (project staging area unchanged)
 
-The suite has 181 tests: the original agentic-loop suite plus unit and
-pipeline tests for the stream router, bridge formatters, tool registry,
-budget-gated pipelines, universal/git-shadow backtracker, and CLI.
+What was NOT tested, and you must check on your real tools:
+- Whether each tool picks up the skill from the folder the installer uses. Those folders are my best guess for each tool and are not verified: `~/.claude/skills`, `~/.codex/skills`, `~/.gemini/skills`, `~/.gemini/antigravity/skills`, `~/.config/opencode/skills`. If one is wrong, use `--dest` or paste the SKILL.md into that tool's instruction file.
+- Whether the AI actually follows the skill on the first message. A skill is instructions, not a hook, so it depends on the model. `--always-on` makes this more likely, not certain.
+- Token counts and estimates come from the AI itself. They are rough. The script does not measure real usage.
+- Rewind is manual (git commands printed in the report). There is no automatic restore.
 
-Current result: **178 passed, 3 xfailed** (the three bugs listed above are
-marked `xfail` with reasons; no failures are hidden).
-
-Because the real `tracegate_mcp.py` is still missing, the suite runs against
-`tests/stubs/tracegate_mcp.py`, an offline stub that re-implements its API
-(SQLite DAG store, pre-flight estimator, fork/top-up logic) so the rest of
-the code can be tested for real. All LLM provider calls are mocked; no API
-keys or network are used. Drop the real module at the repo root and it takes
-precedence over the stub automatically.
-
-## What's inside
-
-| File | What it does |
-| --- | --- |
-| `llm_stream_router.py` | Multi-provider async streaming engine: normalized thought/tool/text stream events, per-provider Assistant-Prefill resume, first version of the budget-gated pipeline |
-| `tracegate_bridge.py` | Extended version: tool registry with cross-provider schema translation, multi-turn tool execution loop, post-tool budget firewall, recursive pipeline state machine |
-| `tracegate_cli.py` | `tracegate` CLI: `up`, `mcp`, `sync`, `estimate`, `tree`, `test` |
-| `tracegate_universal.py` | Drop-in plugin installer for coding tools (OpenCode, Claude Code, Codex, Cursor, etc.) plus git shadow-tree snapshots and session start/end reports |
-| `test_tracegate_agentic_loop.py` | Original pytest suite: schema compilation, tool replay, budget interrupts, DAG forking, prefill continuation |
-| `tests/` | Extended test suite (stream router, formatters, tool registry, pipelines, universal/git-shadow, CLI) plus `tests/stubs/tracegate_mcp.py`, the offline stub for the missing core module |
-| `conftest.py` | Pytest bootstrap: puts the stub on `sys.path` and supplies the missing `MANAGER` / `configure_sqlite_wal` for tests |
-| `push_repo.py` | Helper to git-init and push this project to your own GitHub repo |
-| `pyproject.toml`, `Dockerfile`, `docker-compose.yml`, `.env.example`, `.gitignore` | Packaging and run config |
-| `.github/` | CI workflow, issue templates, PR template |
+There are no automated tests. The earlier test suite, the API-key proxy code, Docker and PyPI release files were removed. All of it is in git history at commit `765d0e1`.
 
 ## License
 
