@@ -43,6 +43,14 @@ curl -fsSL https://raw.githubusercontent.com/A2wkiller/agent-rewind/main/install
 # or: codex | gemini-cli | antigravity | opencode
 ```
 
+The one-liner needs a POSIX shell (macOS, Linux, WSL or Git Bash). On plain Windows, clone and run the installer with `python` instead:
+
+```powershell
+git clone https://github.com/A2wkiller/agent-rewind.git
+cd agent-rewind
+python skills\tracegate\install.py claude-code
+```
+
 Or from a clone:
 
 ```bash
@@ -89,13 +97,13 @@ Prices: `skills/tracegate/pricing.json` ships real provider prices checked 2026-
 python3 -m unittest discover -s tests -v
 ```
 
-55 real tests, standard library only: estimate math, pricing lookup, checkpoint isolation from your staging area, full snapshots of ignored files, rewind restore and safety snapshot, delete-new confirmation, branch/switch, per-checkpoint cost, per-project sessions, cleanup, measured-token parsing (dedupe for Claude, cumulative for Codex), hook I/O contracts for all four tools, installer hook merging, and the one-line installer. They run the actual scripts in temp directories with real git repos. CI runs them on Python 3.11 and 3.13.
+55 real tests, standard library only: estimate math, pricing lookup, checkpoint isolation from your staging area, full snapshots of ignored files, rewind restore and safety snapshot, delete-new confirmation, branch/switch, per-checkpoint cost, per-project sessions, cleanup, measured-token parsing (dedupe for Claude, cumulative for Codex), hook I/O contracts for all four tools, installer hook merging, and the one-line installer. They run the actual scripts in temp directories with real git repos. CI runs them on Linux and Windows (ubuntu-latest and windows-latest), Python 3.11 and 3.13.
 
 ## Honest status
 
-What was actually run (Linux, Python 3, real git repos):
+What was actually run (Linux and Windows, Python 3.11 and 3.13, real git repos - CI on ubuntu-latest and windows-latest):
 
-- the full test suite above, green
+- the full test suite above, green on both operating systems
 - the installer for all five targets, including hook config merging, `--always-on`, and re-running it
 - the hook entry points with each tool's documented payload shape (stdin JSON in, the documented stdout shape out)
 - scripted demo sessions (the captures above), including real rewinds that restored files, a full snapshot that restored a `.env`, a branch-and-switch round trip, and the measured-token parsers against real-format transcript fixtures
