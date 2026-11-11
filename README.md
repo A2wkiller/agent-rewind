@@ -3,9 +3,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![tests](https://github.com/A2wkiller/agent-rewind/actions/workflows/tests.yml/badge.svg)](https://github.com/A2wkiller/agent-rewind/actions/workflows/tests.yml)
 
-![25-second demo: why agent-rewind exists, save, edit, rewind, working again](docs/images/demo-simple.gif)
+[![Watch the 26-second narrated explainer: cost tracking and backtracking](docs/images/explainer-preview.png)](docs/videos/agent-rewind-explainer.mp4)
 
-*Real CLI output in a disposable git repo. This shows the helper, not hooks firing inside a live AI coding tool.*
+**[Watch the 26-second explainer with sound](docs/videos/agent-rewind-explainer.mp4)** - why it exists, USD session-cost estimates, and checkpoint/rewind. Open the video and press play. The image above is a silent preview.
+
+Cost is an estimate, not the provider's final bill. Measured tokens require a readable Claude Code or Codex usage log; otherwise the helper uses logged estimates. The helper is free; AI-tool usage may still cost money.
 
 A plug-and-play skill for AI coding tools (Claude Code, Codex, Gemini CLI, Antigravity, OpenCode). It gives your session **real backtracking**: the AI logs what it does, snapshots your project at checkpoints, and can **rewind the project to a checkpoint and continue** when something goes wrong. It also gives you a rough USD cost estimate at the start of the session.
 
