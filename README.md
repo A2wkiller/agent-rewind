@@ -1,7 +1,7 @@
 # TraceGate
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![tests](https://github.com/A2wkiller/ai-token-firewall/actions/workflows/tests.yml/badge.svg)](https://github.com/A2wkiller/ai-token-firewall/actions/workflows/tests.yml)
+[![tests](https://github.com/A2wkiller/agent-rewind/actions/workflows/tests.yml/badge.svg)](https://github.com/A2wkiller/agent-rewind/actions/workflows/tests.yml)
 
 A plug-and-play skill for AI coding tools (Claude Code, Codex, Gemini CLI, Antigravity, OpenCode). It gives your session **real backtracking**: the AI logs what it does, snapshots your project at checkpoints, and can **rewind the project to a checkpoint and continue** when something goes wrong. It also gives you a rough USD cost estimate at the start of the session.
 
@@ -39,15 +39,15 @@ These are captures of the actual script running (a demo project, a real git repo
 One line (needs git and python3):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/A2wkiller/ai-token-firewall/main/install.sh | sh -s -- claude-code
+curl -fsSL https://raw.githubusercontent.com/A2wkiller/agent-rewind/main/install.sh | sh -s -- claude-code
 # or: codex | gemini-cli | antigravity | opencode
 ```
 
 Or from a clone:
 
 ```bash
-git clone https://github.com/A2wkiller/ai-token-firewall.git
-cd ai-token-firewall
+git clone https://github.com/A2wkiller/agent-rewind.git
+cd agent-rewind
 python3 skills/tracegate/install.py claude-code
 ```
 

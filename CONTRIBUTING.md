@@ -18,8 +18,8 @@ Python script, one skill file, one installer, all standard library.
 ## Set up and test
 
 ```bash
-git clone https://github.com/A2wkiller/ai-token-firewall.git
-cd ai-token-firewall
+git clone https://github.com/A2wkiller/agent-rewind.git
+cd agent-rewind
 python3 -m unittest discover -s tests -v
 ```
 
