@@ -1,6 +1,25 @@
 {
-  "_note": "USD per 1M tokens. Raw provider prices, no currency conversion. 'example-model' is a made-up placeholder. Add real models from the provider's pricing page; prices change.",
+  "_note": "Real USD prices per 1M tokens (input/output), checked 2026-11-11 on the official pages listed in _sources. Raw USD, no currency conversion. Prices change; verify before relying on them, especially past the promo dates in 'notes'.",
+  "_sources": [
+    "https://docs.anthropic.com/en/docs/about-claude/pricing",
+    "https://platform.openai.com/docs/pricing",
+    "https://aistudio.google.com/docs/pricing"
+  ],
   "models": {
-    "example-model": { "input_per_1m": 2.0, "output_per_1m": 10.0 }
+    "claude-fable-5.2": { "input_per_1m": 8.0, "output_per_1m": 40.0 },
+    "claude-opus-5.5": { "input_per_1m": 4.0, "output_per_1m": 20.0 },
+    "claude-sonnet-5.5": { "input_per_1m": 2.0, "output_per_1m": 10.0 },
+    "claude-haiku-5.5": { "input_per_1m": 0.10, "output_per_1m": 0.50, "notes": "prompts up to 100K tokens; over 100K: $0.50 in / $2.50 out" },
+    "claude-haiku-4.5": { "input_per_1m": 1.0, "output_per_1m": 5.0 },
+    "gpt-6.1-sol": { "input_per_1m": 2.0, "output_per_1m": 10.0, "notes": "short context; long context $4 in / $15 out" },
+    "gpt-6.1-terra": { "input_per_1m": 1.0, "output_per_1m": 5.0, "notes": "short context; long context $2 in / $7.50 out" },
+    "gpt-6-luna": { "input_per_1m": 0.10, "output_per_1m": 0.50, "notes": "short context; long context $0.20 in / $0.75 out" },
+    "gpt-5": { "input_per_1m": 1.25, "output_per_1m": 10.0 },
+    "gpt-5-mini": { "input_per_1m": 0.25, "output_per_1m": 2.0 },
+    "gpt-5-nano": { "input_per_1m": 0.05, "output_per_1m": 0.40 },
+    "gemini-4-carbon": { "input_per_1m": 2.0, "output_per_1m": 10.0, "notes": "promo through 2026-11-30; $4 in / $20 out from 2026-12-01" },
+    "gemini-4-argon": { "input_per_1m": 2.0, "output_per_1m": 10.0, "notes": "promo through 2026-11-30; $4 in / $20 out from 2026-12-01" },
+    "gemini-3.8-flash": { "input_per_1m": 0.75, "output_per_1m": 3.75, "notes": "promo through 2026-12-31; $1.50 in / $7.50 out from 2027-01-01" },
+    "gemini-3.5-flash-lite": { "input_per_1m": 0.30, "output_per_1m": 2.50 }
   }
 }
