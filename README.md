@@ -65,7 +65,7 @@ Prices: `skills/tracegate/pricing.json` ships real provider prices checked 2026-
 python3 -m unittest discover -s tests -v
 ```
 
-17 real tests, standard library only: estimate math, pricing lookup, checkpoint isolation from your staging area, rewind restore and safety snapshot, budget exit codes, installer behavior. They run the actual scripts in temp directories with real git repos. CI runs them on Python 3.9 and 3.12.
+17 real tests, standard library only: estimate math, pricing lookup, checkpoint isolation from your staging area, rewind restore and safety snapshot, budget exit codes, installer behavior. They run the actual scripts in temp directories with real git repos. CI runs them on Python 3.11 and 3.13.
 
 ## Honest status
 
