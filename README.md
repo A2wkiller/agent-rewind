@@ -3,6 +3,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![tests](https://github.com/A2wkiller/agent-rewind/actions/workflows/tests.yml/badge.svg)](https://github.com/A2wkiller/agent-rewind/actions/workflows/tests.yml)
 
+![20-second CLI demo: checkpoint, broken edit, rewind, working file restored](docs/images/demo.gif)
+
+*Real CLI output in a disposable git repo. This shows the helper, not hooks firing inside a live AI coding tool.*
+
 A plug-and-play skill for AI coding tools (Claude Code, Codex, Gemini CLI, Antigravity, OpenCode). It gives your session **real backtracking**: the AI logs what it does, snapshots your project at checkpoints, and can **rewind the project to a checkpoint and continue** when something goes wrong. It also gives you a rough USD cost estimate at the start of the session.
 
 No API keys. No `.env`. No provider API calls. No network. Python 3 standard library only.
