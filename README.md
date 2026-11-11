@@ -3,9 +3,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![tests](https://github.com/A2wkiller/agent-rewind/actions/workflows/tests.yml/badge.svg)](https://github.com/A2wkiller/agent-rewind/actions/workflows/tests.yml)
 
-[![Watch the 26-second narrated explainer: cost tracking and backtracking](docs/images/explainer-preview.png)](docs/videos/agent-rewind-explainer.mp4)
+[![Watch the 26-second narrated explainer: cost tracking and backtracking](docs/images/explainer-preview.png)](https://github.com/A2wkiller/agent-rewind/raw/refs/heads/main/docs/videos/agent-rewind-explainer.mp4)
 
-**[Watch the 26-second explainer with sound](docs/videos/agent-rewind-explainer.mp4)** - why it exists, USD session-cost estimates, and checkpoint/rewind. Open the video and press play. The image above is a silent preview.
+**[Download/play the 26-second explainer with sound](https://github.com/A2wkiller/agent-rewind/raw/refs/heads/main/docs/videos/agent-rewind-explainer.mp4)** - why it exists, USD session-cost estimates, and checkpoint/rewind. Download the MP4 and open it in your video player. The image above is a silent preview.
 
 Cost is an estimate, not the provider's final bill. Measured tokens require a readable Claude Code or Codex usage log; otherwise the helper uses logged estimates. The helper is free; AI-tool usage may still cost money.
 
