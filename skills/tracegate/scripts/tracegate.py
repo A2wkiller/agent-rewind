@@ -541,6 +541,86 @@ def cmd_clean(a):
     print(f"cleaned: {len(old)} log(s), {len(refs)} ref(s)")
 
 
+# ---------------------------------------------------------------- hooks
+
+def hook_payload():
+    try:
+        data = sys.stdin.read()
+        return json.loads(data) if data.strip() else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def hook_cwd(payload):
+    if payload.get("cwd"):
+        return payload["cwd"]
+    ws = payload.get("workspacePaths")
+    if ws:
+        return ws[0]
+    return os.environ.get("GEMINI_PROJECT_DIR") or "."
+
+
+def hook_out(tool, kind, text=None):
+    """Print the response in the shape the calling tool expects. Shapes
+    verified against each tool's hook docs (sources in README)."""
+    if kind == "session-start":
+        if tool == "gemini-cli":
+            # golden rule: stdout is one JSON object, nothing else
+            print(json.dumps({"hookSpecificOutput": {
+                "hookEventName": "SessionStart", "additionalContext": text}}))
+        elif tool == "antigravity":
+            print(json.dumps({"injectSteps": [{"systemMessage": {"systemMessage": text}}]}))
+        else:  # claude-code and codex add plain stdout to the model's context
+            print(text)
+    elif kind == "session-end":
+        if tool in ("gemini-cli", "antigravity"):
+            print("{}")
+        # claude-code / codex: no output needed
+    elif kind == "post-tool":
+        if tool in ("gemini-cli", "antigravity"):
+            print("{}")
+        # claude-code / codex: exit 0 with empty stdout = no decision
+
+
+def cmd_hook(a):
+    payload = hook_payload()
+    cwd = hook_cwd(payload)
+    if a.event == "session-start":
+        model = payload.get("model") or payload.get("modelName")
+        sid, resumed, lines = start_session(cwd, tool=a.tool, model=model)
+        link = {}
+        if payload.get("session_id"):
+            link["tool_session_id"] = payload["session_id"]
+        if payload.get("conversationId"):
+            link["tool_session_id"] = link.get("tool_session_id") or payload["conversationId"]
+        tp = payload.get("transcript_path") or payload.get("transcriptPath")
+        if tp:
+            link["transcript_path"] = tp
+        if link:
+            append(sid, {"type": "link", **link}, cwd)
+        text = "\n".join(lines) + (
+            "\nThis session is being backtracked by TraceGate. Log steps with `tracegate.py log`, "
+            "run `tracegate.py checkpoint` before risky edits, `tracegate.py rewind` to go back, "
+            "and `tracegate.py end` for the report. Never log secrets.")
+        hook_out(a.tool, "session-start", text)
+    elif a.event == "session-end":
+        sid = latest(cwd)
+        if sid and is_open(read(sid, cwd)):
+            append(sid, {"type": "end", "summary": "auto: tool session ended"}, cwd)
+        hook_out(a.tool, "session-end")
+    elif a.event == "post-tool":
+        sid = latest(cwd)
+        if sid and is_open(read(sid, cwd)):
+            name = (payload.get("tool_name") or payload.get("tool")
+                    or (payload.get("toolCall") or {}).get("name") or "unknown")
+            ti = payload.get("tool_input") or (payload.get("toolCall") or {}).get("args") or {}
+            f = (ti.get("file_path") or ti.get("TargetFile") or ti.get("path")
+                 or ti.get("absolute_path") or "")
+            append(sid, {"type": "step", "kind": "tool", "text": f"auto: {name}",
+                         "files": [f] if f else [], "tok_in": None, "tok_out": None}, cwd)
+        hook_out(a.tool, "post-tool")
+
+
 # ---------------------------------------------------------------- main
 
 def main():
@@ -583,6 +663,11 @@ def main():
     x.set_defaults(f=cmd_end)
     x = s.add_parser("report")
     x.add_argument("--session"); x.add_argument("--dir", default="."); x.set_defaults(f=cmd_report)
+    x = s.add_parser("hook")
+    x.add_argument("event", choices=["session-start", "session-end", "post-tool"])
+    x.add_argument("--tool", required=True,
+                   choices=["claude-code", "gemini-cli", "antigravity", "codex"])
+    x.set_defaults(f=cmd_hook)
     a = p.parse_args(); a.f(a)
 
 

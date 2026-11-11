@@ -268,6 +268,140 @@ class TestClean(Base):
         self.assertIn("Nothing to clean", r.stdout)
 
 
+class TestHooks(Base):
+    def hook(self, event, tool, payload, check=True):
+        return self.tg("hook", event, "--tool", tool, stdin=json.dumps(payload), check=check)
+
+    def payload(self, **kw):
+        base = {"cwd": str(self.proj), "session_id": "tool-sid-123",
+                "transcript_path": str(Path(self.tmp.name) / "t.jsonl"),
+                "model": "claude-sonnet-5.5"}
+        base.update(kw)
+        return base
+
+    def test_session_start_claude_plain_text_and_link_recorded(self):
+        r = self.hook("session-start", "claude-code", self.payload())
+        self.assertIn("TraceGate backtracking STARTED", r.stdout)
+        recs = [json.loads(l) for l in self.sessions()[0].read_text().splitlines()]
+        link = next(x for x in recs if x["type"] == "link")
+        self.assertEqual(link["tool_session_id"], "tool-sid-123")
+        self.assertTrue(link["transcript_path"].endswith("t.jsonl"))
+
+    def test_session_start_gemini_is_pure_json_with_additional_context(self):
+        r = self.hook("session-start", "gemini-cli", self.payload())
+        out = json.loads(r.stdout)  # must be exactly one JSON object, no extra text
+        ctx = out["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("TraceGate backtracking", ctx)
+
+    def test_session_start_antigravity_inject_steps(self):
+        payload = {"workspacePaths": [str(self.proj)], "conversationId": "conv-1",
+                   "modelName": "gemini-3.6-flash-medium"}
+        r = self.hook("session-start", "antigravity", payload)
+        out = json.loads(r.stdout)
+        msg = out["injectSteps"][0]["systemMessage"]["systemMessage"]
+        self.assertIn("TraceGate backtracking", msg)
+
+    def test_session_start_codex_plain_text(self):
+        r = self.hook("session-start", "codex", self.payload())
+        self.assertIn("TraceGate backtracking STARTED", r.stdout)
+
+    def test_second_session_start_resumes(self):
+        self.hook("session-start", "claude-code", self.payload())
+        r = self.hook("session-start", "claude-code", self.payload())
+        self.assertIn("RESUMED", r.stdout)
+        self.assertEqual(len(self.sessions()), 1)
+
+    def test_post_tool_logs_the_edit(self):
+        self.hook("session-start", "claude-code", self.payload())
+        r = self.hook("post-tool", "claude-code",
+                      self.payload(hook_event_name="PostToolUse", tool_name="Edit",
+                                   tool_input={"file_path": "app.py"}))
+        self.assertEqual(r.stdout, "")  # claude-code post-tool: silent success
+        rep = self.tg("report", "--dir", str(self.proj), check=True).stdout
+        self.assertIn("auto: Edit", rep)
+        self.assertIn("app.py", rep)
+
+    def test_post_tool_antigravity_returns_empty_object(self):
+        self.hook("session-start", "antigravity",
+                  {"workspacePaths": [str(self.proj)], "conversationId": "c1"})
+        r = self.hook("post-tool", "antigravity",
+                      {"workspacePaths": [str(self.proj)],
+                       "toolCall": {"name": "write_to_file", "args": {"TargetFile": "x.py"}}})
+        self.assertEqual(json.loads(r.stdout), {})
+        rep = self.tg("report", "--dir", str(self.proj), check=True).stdout
+        self.assertIn("auto: write_to_file", rep)
+
+    def test_session_end_closes_open_session(self):
+        self.hook("session-start", "claude-code", self.payload())
+        self.hook("session-end", "claude-code", self.payload())
+        rep = self.tg("report", "--dir", str(self.proj), check=True).stdout
+        self.assertIn("ended", rep)
+        self.assertIn("auto: tool session ended", self.sessions()[0].read_text())
+
+
+class TestMeasuredTokens(Base):
+    def write(self, name, lines):
+        p = Path(self.tmp.name) / name
+        p.write_text("\n".join(json.dumps(x) for x in lines) + "\n")
+        return p
+
+    def link_via_hook(self, tool, transcript):
+        self.tg("hook", "session-start", "--tool", tool, check=True,
+                stdin=json.dumps({"cwd": str(self.proj), "session_id": "s1",
+                                  "transcript_path": str(transcript),
+                                  "model": "claude-sonnet-5.5"}))
+
+    def test_claude_transcript_summed_and_deduped(self):
+        t = self.write("claude.jsonl", [
+            {"type": "user", "message": {"role": "user"}},
+            {"type": "assistant", "uuid": "u1", "message": {"id": "m1",
+                "usage": {"input_tokens": 100, "output_tokens": 10,
+                          "cache_read_input_tokens": 500, "cache_creation_input_tokens": 50}}},
+            # a retry of the same message must not double count
+            {"type": "assistant", "uuid": "u2", "message": {"id": "m1",
+                "usage": {"input_tokens": 100, "output_tokens": 10,
+                          "cache_read_input_tokens": 500, "cache_creation_input_tokens": 50}}},
+            {"type": "assistant", "uuid": "u3", "message": {"id": "m2",
+                "usage": {"input_tokens": 200, "output_tokens": 20}}},
+        ])
+        self.link_via_hook("claude-code", t)
+        r = self.tg("tokens", "--dir", str(self.proj), check=True)
+        self.assertIn("input (uncached): 300", r.stdout)
+        self.assertIn("output: 30", r.stdout)
+        self.assertIn("cache read: 500", r.stdout)
+
+    def test_codex_rollout_takes_last_cumulative_event(self):
+        t = self.write("rollout.jsonl", [
+            {"type": "event_msg", "payload": {"type": "token_count", "info": {
+                "total_token_usage": {"input_tokens": 1000, "cached_input_tokens": 400,
+                                      "output_tokens": 100}}}},
+            {"type": "event_msg", "payload": {"type": "token_count", "info": {
+                "total_token_usage": {"input_tokens": 2500, "cached_input_tokens": 1000,
+                                      "output_tokens": 300}}}},
+        ])
+        self.link_via_hook("codex", t)
+        r = self.tg("tokens", "--dir", str(self.proj), check=True)
+        self.assertIn("input (uncached): 1,500", r.stdout)  # 2500 - 1000 cached, not summed
+        self.assertIn("output: 300", r.stdout)
+
+    def test_cost_prefers_measured_over_logged(self):
+        t = self.write("claude2.jsonl", [
+            {"type": "assistant", "message": {"id": "m1",
+                "usage": {"input_tokens": 1000000, "output_tokens": 0}}},
+        ])
+        self.link_via_hook("claude-code", t)  # model claude-sonnet-5.5: $2/1M in
+        self.tg("log", "tool", "rough guess", "--tok-in", "5", "--tok-out", "5",
+                "--dir", str(self.proj), check=True)
+        r = self.tg("cost", "--dir", str(self.proj), check=True)
+        self.assertIn("measured from the tool's transcript", r.stdout)
+        self.assertIn("1,000,000 in", r.stdout)
+
+    def test_unsupported_tool_says_so(self):
+        self.tg("start", "--tool", "gemini-cli", "--dir", str(self.proj), check=True)
+        r = self.tg("tokens", "--dir", str(self.proj), check=True)
+        self.assertIn("not supported for gemini-cli", r.stdout)
+
+
 class TestInstaller(Base):
     def test_install_to_dest_copies_skill_not_installer(self):
         dest = Path(self.tmp.name) / "skills"
@@ -306,6 +440,79 @@ class TestInstaller(Base):
         md = (fake_home / ".claude" / "CLAUDE.md").read_text()
         self.assertEqual(md.count("<!-- tracegate -->"), 1)
         self.assertTrue((fake_home / ".claude" / "skills" / "tracegate" / "SKILL.md").exists())
+
+
+class TestInstallerHooks(Base):
+    def setUp(self):
+        self.fake_home = Path(self.tmp.name) if hasattr(self, "tmp") else None
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.fake_home = Path(self.tmp.name) / "fakehome"
+        self.fake_home.mkdir()
+        self.env = dict(os.environ, HOME=str(self.fake_home))
+
+    def install(self, *args):
+        return subprocess.run([sys.executable, str(INSTALLER), *args],
+                              capture_output=True, text=True, env=self.env)
+
+    def test_claude_code_hooks_merged_idempotently_with_backup(self):
+        settings = self.fake_home / ".claude" / "settings.json"
+        settings.parent.mkdir(parents=True)
+        settings.write_text(json.dumps({"model": "opus"}))
+        for _ in range(2):
+            r = self.install("claude-code")
+            self.assertEqual(r.returncode, 0, r.stderr)
+        data = json.loads(settings.read_text())
+        self.assertEqual(data["model"], "opus")  # existing config kept
+        hooks = data["hooks"]
+        self.assertEqual(len(hooks["SessionStart"]), 1)
+        self.assertIn("tracegate", hooks["SessionStart"][0]["hooks"][0]["command"])
+        self.assertEqual(hooks["PostToolUse"][0]["matcher"], "Edit|Write|MultiEdit|NotebookEdit")
+        backups = list(settings.parent.glob("settings.json.tracegate-bak-*"))
+        self.assertTrue(backups)
+        self.assertEqual(json.loads(backups[0].read_text()), {"model": "opus"})
+
+    def test_gemini_cli_hooks_file(self):
+        r = self.install("gemini-cli")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        data = json.loads((self.fake_home / ".gemini" / "settings.json").read_text())
+        self.assertIn("AfterTool", data["hooks"])
+        self.assertEqual(data["hooks"]["AfterTool"][0]["matcher"], "write_file|replace")
+
+    def test_antigravity_hooks_file_shape(self):
+        r = self.install("antigravity")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        data = json.loads((self.fake_home / ".gemini" / "config" / "hooks.json").read_text())
+        self.assertIn("tracegate", data)
+        self.assertIn("SessionStart", data["tracegate"])
+        self.assertIn("Stop", data["tracegate"])
+
+    def test_codex_hooks_file_and_trust_note(self):
+        r = self.install("codex")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("trust", r.stdout.lower())
+        data = json.loads((self.fake_home / ".codex" / "hooks.json").read_text())
+        self.assertEqual(data["hooks"]["SessionStart"][0]["matcher"], "startup|resume")
+
+    def test_opencode_gets_no_hooks_and_a_note(self):
+        r = self.install("opencode")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("no shell-command hooks", r.stdout)
+        self.assertFalse((self.fake_home / ".config" / "opencode" / "hooks.json").exists())
+
+    def test_no_hooks_flag(self):
+        r = self.install("claude-code", "--no-hooks")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse((self.fake_home / ".claude" / "settings.json").exists())
+
+    def test_invalid_json_config_is_refused(self):
+        settings = self.fake_home / ".claude" / "settings.json"
+        settings.parent.mkdir(parents=True)
+        settings.write_text("{ not json")
+        r = self.install("claude-code")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("not valid JSON", r.stderr)
+        self.assertEqual(settings.read_text(), "{ not json")  # untouched
 
 
 if __name__ == "__main__":
