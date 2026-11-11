@@ -59,7 +59,10 @@ SHELL_MATCHERS = {
 
 
 def hook_command(out, tool, event):
-    return f'python3 "{out}/scripts/tracegate.py" hook {event} --tool {tool}'
+    # the interpreter running this installer, by absolute path: `python3` does
+    # not exist on a stock Windows box, and PATH lookups in tool hooks are not
+    # reliable on any platform.
+    return f'"{sys.executable}" "{out}/scripts/tracegate.py" hook {event} --tool {tool}'
 
 
 def build_hooks(tool, out):
@@ -114,7 +117,7 @@ def merge_hooks(path, top_key, entries):
     data = {}
     if path.exists():
         try:
-            data = json.loads(path.read_text())
+            data = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             sys.exit(f"refusing to edit {path}: it is not valid JSON. Fix it or move it aside.")
         if not isinstance(data, dict):
@@ -141,7 +144,7 @@ def merge_hooks(path, top_key, entries):
     if path.exists():
         shutil.copy2(path, path.with_name(path.name + f".tracegate-bak-{time.strftime('%Y%m%d-%H%M%S')}"))
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n")
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     print(f"hooks merged into {path} (backup saved next to it)")
 
 
@@ -179,9 +182,10 @@ def main():
                   "skill installed without hooks.")
     if a.always_on and instr:
         instr.parent.mkdir(parents=True, exist_ok=True)
-        cur = instr.read_text() if instr.exists() else ""
+        cur = instr.read_text(encoding="utf-8") if instr.exists() else ""
         if MARK not in cur:
-            instr.write_text(cur + ("\n" if cur and not cur.endswith("\n") else "") + LINE.format(path=out))
+            instr.write_text(cur + ("\n" if cur and not cur.endswith("\n") else "") + LINE.format(path=out),
+                             encoding="utf-8")
             print(f"added always-on line to {instr}")
         else:
             print(f"always-on line already in {instr}")

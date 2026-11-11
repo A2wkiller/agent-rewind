@@ -31,6 +31,21 @@ PRICES = Path(__file__).resolve().parent.parent / "pricing.json"
 
 CLEAN_DAYS = 30  # default age for `clean`
 
+# `python` on Windows, `python3` elsewhere: used in hints printed to the user.
+PY = "python" if os.name == "nt" else "python3"
+
+
+def chmod_private(path, mode):
+    """POSIX-only privacy bits. Windows has no owner/group/other modes (chmod
+    there only toggles the read-only flag), and session files already live in
+    the user's own profile dir, so this is a no-op there."""
+    if os.name != "posix":
+        return
+    try:
+        os.chmod(path, mode)
+    except OSError:
+        pass
+
 
 def now():
     return time.strftime("%Y-%m-%d %H:%M:%S")
@@ -39,8 +54,10 @@ def now():
 # ---------------------------------------------------------------- sessions
 
 def git(args, cwd, env=None, check=True):
-    return subprocess.run(["git"] + args, cwd=cwd, env=env,
-                          capture_output=True, text=True, check=check)
+    # git speaks UTF-8; on Windows the locale default (cp1252) would break
+    # decoding, so pin it and never crash on a stray byte.
+    return subprocess.run(["git"] + args, cwd=cwd, env=env, capture_output=True,
+                          text=True, encoding="utf-8", errors="replace", check=check)
 
 
 def project_key(cwd):
@@ -99,18 +116,18 @@ def latest(cwd=None):
 def append(sid, rec, cwd=None):
     p = sfile(sid, cwd)
     p.parent.mkdir(parents=True, exist_ok=True)
-    os.chmod(p.parent, 0o700)
+    chmod_private(p.parent, 0o700)
     if SESS.exists():
-        os.chmod(SESS, 0o700)
+        chmod_private(SESS, 0o700)
     rec["t"] = now()
-    with open(p, "a") as f:
+    with open(p, "a", encoding="utf-8") as f:
         f.write(json.dumps(rec) + "\n")
-    os.chmod(p, 0o600)
+    chmod_private(p, 0o600)
 
 
 def read_file(p):
     out = []
-    for line in Path(p).read_text().splitlines():
+    for line in Path(p).read_text(encoding="utf-8", errors="replace").splitlines():
         if not line.strip():
             continue
         try:
@@ -376,7 +393,7 @@ def cmd_branch(a):
     append(sid, {"type": "branch", "name": a.name, "commit": sha,
                  "full": bool(a.full)}, a.dir)
     print(f"branch '{a.name}': git commit {sha} (ref {ref})")
-    print(f"Try another path now; come back with: python3 tracegate.py switch {a.name} --yes")
+    print(f"Try another path now; come back with: {PY} tracegate.py switch {a.name} --yes")
 
 
 def cmd_switch(a):
@@ -587,7 +604,7 @@ def build_report(sid, cwd=None):
                 line += "]"
                 prev_cost = c["cost_usd"]
             L.append(line)
-        L.append(f"  Rewind to one: python3 tracegate.py rewind <n|label> --yes")
+        L.append(f"  Rewind to one: {PY} tracegate.py rewind <n|label> --yes")
         L.append(f"  Inspect first: git show <commit> ; diff: git diff HEAD <commit>")
     branches = [r for r in recs if r["type"] == "branch"]
     switches = [r for r in recs if r["type"] == "switch"]
@@ -597,7 +614,7 @@ def build_report(sid, cwd=None):
             L.append(f"  - {b['name']} @ {b['t']}: {b['commit']}")
         for s_ in switches:
             L.append(f"     {s_['t']} switch: to '{s_['to']}' ({(s_['commit'] or '')[:12]})")
-        L.append("  Switch to one: python3 tracegate.py switch <name> --yes")
+        L.append(f"  Switch to one: {PY} tracegate.py switch <name> --yes")
     L += ["", f"Files touched: {', '.join(files) if files else 'none logged'}"]
     if cost is not None:
         L.append(f"Tokens: {ti:,} in, {to:,} out -> {usd(cost)} (USD, {SRC_LABEL[source]})")

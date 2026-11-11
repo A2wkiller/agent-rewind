@@ -7,7 +7,7 @@ description: Session backtracking and cost estimate. Use at the very first user 
 
 You keep a backtracking log of this session so the user can review it later. No API keys, no network, no .env. You run one small local script.
 
-Script path: `scripts/tracegate.py` next to this file (e.g. `~/.claude/skills/tracegate/scripts/tracegate.py`). Use `python3`.
+Script path: `scripts/tracegate.py` next to this file (e.g. `~/.claude/skills/tracegate/scripts/tracegate.py`). Run it with `python3` on macOS/Linux, `python` on Windows.
 
 ## 0. If a hook already started the session
 

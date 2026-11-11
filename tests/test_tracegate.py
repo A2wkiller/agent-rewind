@@ -12,6 +12,39 @@ INSTALLER = ROOT / "skills" / "tracegate" / "install.py"
 GIT = shutil.which("git")
 
 
+def _fix_readonly(func, path, _exc):
+    """rmtree onerror: Windows marks .git object files read-only and a just-
+    exited git process can briefly hold a handle, so plain deletes can fail
+    there. Clear the read-only bit and retry once."""
+    try:
+        os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+    except OSError:
+        pass
+    try:
+        func(path)
+    except PermissionError:
+        time.sleep(0.25)
+        func(path)
+
+
+class TmpDir:
+    """A temp dir whose cleanup survives read-only .git files on Windows."""
+
+    def __init__(self):
+        self.name = tempfile.mkdtemp(prefix="tg-test-")
+
+    def cleanup(self):
+        shutil.rmtree(self.name, onerror=_fix_readonly, ignore_errors=True)
+
+
+def home_env(p):
+    """Child-process env that redirects Path.home() to p. Path.home() reads
+    HOME on POSIX but USERPROFILE on Windows."""
+    if os.name == "nt":
+        return {"USERPROFILE": str(p)}
+    return {"HOME": str(p)}
+
+
 def run(args, env_extra=None, cwd=None, check=False, stdin=None):
     env = dict(os.environ)
     if env_extra:
@@ -25,7 +58,7 @@ def run(args, env_extra=None, cwd=None, check=False, stdin=None):
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp = TmpDir()
         self.addCleanup(self.tmp.cleanup)
         self.home = Path(self.tmp.name) / "tg-home"
         self.env = {"TRACEGATE_HOME": str(self.home)}
@@ -140,6 +173,7 @@ class TestLoggingAndReport(Base):
         self.assertIn("app.py", r.stdout)
         self.assertIn("ended", r.stdout)
 
+    @unittest.skipUnless(os.name == "posix", "POSIX permission modes do not exist on Windows")
     def test_session_files_are_private(self):
         self.start_session()
         for f in self.sessions():
@@ -536,6 +570,7 @@ class TestInstaller(Base):
         run([str(INSTALLER), "--dest", str(dest)], check=True)
         self.assertTrue((dest / "tracegate" / "SKILL.md").exists())
 
+    @unittest.skipIf(os.name == "nt", "creating symlinks needs extra privileges on Windows")
     def test_refuses_symlink_target(self):
         dest = Path(self.tmp.name) / "skills"
         dest.mkdir()
@@ -550,7 +585,7 @@ class TestInstaller(Base):
     def test_always_on_line_is_idempotent(self):
         fake_home = Path(self.tmp.name) / "fakehome"
         fake_home.mkdir()
-        env = dict(os.environ, HOME=str(fake_home))
+        env = dict(os.environ, **home_env(fake_home))
         for _ in range(2):
             r = subprocess.run([sys.executable, str(INSTALLER), "claude-code", "--always-on"],
                                capture_output=True, text=True, env=env)
@@ -562,12 +597,11 @@ class TestInstaller(Base):
 
 class TestInstallerHooks(Base):
     def setUp(self):
-        self.fake_home = Path(self.tmp.name) if hasattr(self, "tmp") else None
-        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp = TmpDir()
         self.addCleanup(self.tmp.cleanup)
         self.fake_home = Path(self.tmp.name) / "fakehome"
         self.fake_home.mkdir()
-        self.env = dict(os.environ, HOME=str(self.fake_home))
+        self.env = dict(os.environ, **home_env(self.fake_home))
 
     def install(self, *args):
         return subprocess.run([sys.executable, str(INSTALLER), *args],
@@ -638,6 +672,7 @@ class TestInstallerHooks(Base):
 
 @unittest.skipUnless(GIT, "git not available")
 class TestOneLineInstall(Base):
+    @unittest.skipIf(os.name == "nt", "install.sh is a POSIX shell script; on Windows you clone and run install.py directly")
     def test_install_sh_clones_and_installs(self):
         home = Path(self.tmp.name) / "home"
         home.mkdir()
