@@ -683,9 +683,26 @@ def hook_cwd(payload):
     return os.environ.get("GEMINI_PROJECT_DIR") or "."
 
 
+RISKY = re.compile(
+    r"(rm\s+-[a-zA-Z]*[rf]"           # rm -rf / rm -fr
+    r"|git\s+reset\s+--hard"
+    r"|git\s+clean\s+-[a-zA-Z]*f"
+    r"|git\s+checkout\s+--"
+    r"|drop\s+table|delete\s+from|truncate\s+table"
+    r"|mkfs|dd\s+.*of=/dev"
+    r"|chmod\s+-R\s+777)", re.I)
+
+
 def hook_out(tool, kind, text=None):
     """Print the response in the shape the calling tool expects. Shapes
     verified against each tool's hook docs (sources in README)."""
+    if kind == "pre-tool":
+        if tool == "antigravity":
+            print(json.dumps({"decision": "allow"}))
+        elif tool == "gemini-cli":
+            print("{}")
+        # claude-code / codex: exit 0 with empty stdout = normal flow applies
+        return
     if kind == "session-start":
         if tool == "gemini-cli":
             # golden rule: stdout is one JSON object, nothing else
@@ -731,6 +748,19 @@ def cmd_hook(a):
         if sid and is_open(read(sid, cwd)):
             append(sid, {"type": "end", "summary": "auto: tool session ended"}, cwd)
         hook_out(a.tool, "session-end")
+    elif a.event == "pre-tool":
+        # auto-checkpoint before a risky shell command; never blocks the call
+        cmd_text = ((payload.get("tool_input") or {}).get("command")
+                    or ((payload.get("toolCall") or {}).get("args") or {}).get("CommandLine")
+                    or "")
+        sid = latest(cwd)
+        if sid and cmd_text and RISKY.search(cmd_text) and is_open(read(sid, cwd)):
+            recs = read(sid, cwd)
+            n = sum(1 for r in recs if r["type"] == "checkpoint") + 1
+            sha = git_snapshot(cwd, sid, f"{n}-auto-pre-risky")
+            append(sid, {"type": "checkpoint", "n": n, "label": "auto-pre-risky",
+                         "commit": sha, "command": cmd_text[:200]}, cwd)
+        hook_out(a.tool, "pre-tool")
     elif a.event == "post-tool":
         sid = latest(cwd)
         if sid and is_open(read(sid, cwd)):
@@ -799,7 +829,7 @@ def main():
     x = s.add_parser("report")
     x.add_argument("--session"); x.add_argument("--dir", default="."); x.set_defaults(f=cmd_report)
     x = s.add_parser("hook")
-    x.add_argument("event", choices=["session-start", "session-end", "post-tool"])
+    x.add_argument("event", choices=["session-start", "session-end", "post-tool", "pre-tool"])
     x.add_argument("--tool", required=True,
                    choices=["claude-code", "gemini-cli", "antigravity", "codex"])
     x.set_defaults(f=cmd_hook)

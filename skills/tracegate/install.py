@@ -49,6 +49,13 @@ EDIT_MATCHERS = {
     "antigravity": "write_to_file|replace_file_content|multi_replace_file_content",
     "codex": "apply_patch",
 }
+# shell-tool matchers for the pre-tool risky-command auto-checkpoint hook
+SHELL_MATCHERS = {
+    "claude-code": "Bash",
+    "gemini-cli": "run_shell_command",
+    "antigravity": "run_command",
+    "codex": "Bash|shell",
+}
 
 
 def hook_command(out, tool, event):
@@ -59,18 +66,20 @@ def build_hooks(tool, out):
     """The entries to merge into the tool's hook config, per tool."""
     if tool not in EDIT_MATCHERS:  # opencode: no shell-command hooks exist
         return None, None, None
-    start, post, end = (hook_command(out, tool, e)
-                        for e in ("session-start", "post-tool", "session-end"))
-    m = EDIT_MATCHERS[tool]
+    start, post, end, pre = (hook_command(out, tool, e)
+                             for e in ("session-start", "post-tool", "session-end", "pre-tool"))
+    m, sh = EDIT_MATCHERS[tool], SHELL_MATCHERS[tool]
     if tool == "claude-code":
         return H / ".claude" / "settings.json", "hooks", {
             "SessionStart": [{"hooks": [{"type": "command", "command": start}]}],
+            "PreToolUse": [{"matcher": sh, "hooks": [{"type": "command", "command": pre}]}],
             "PostToolUse": [{"matcher": m, "hooks": [{"type": "command", "command": post}]}],
             "SessionEnd": [{"hooks": [{"type": "command", "command": end}]}],
         }
     if tool == "gemini-cli":
         return H / ".gemini" / "settings.json", "hooks", {
             "SessionStart": [{"hooks": [{"name": "tracegate-start", "type": "command", "command": start}]}],
+            "BeforeTool": [{"matcher": sh, "hooks": [{"name": "tracegate-risky", "type": "command", "command": pre}]}],
             "AfterTool": [{"matcher": m, "hooks": [{"name": "tracegate-log", "type": "command", "command": post}]}],
             "SessionEnd": [{"hooks": [{"name": "tracegate-end", "type": "command", "command": end}]}],
         }
@@ -78,6 +87,7 @@ def build_hooks(tool, out):
         return H / ".codex" / "hooks.json", "hooks", {
             "SessionStart": [{"matcher": "startup|resume",
                               "hooks": [{"type": "command", "command": start}]}],
+            "PreToolUse": [{"matcher": sh, "hooks": [{"type": "command", "command": pre}]}],
             "PostToolUse": [{"matcher": m, "hooks": [{"type": "command", "command": post}]}],
             "SessionEnd": [{"hooks": [{"type": "command", "command": end}]}],
         }
@@ -86,6 +96,7 @@ def build_hooks(tool, out):
         return H / ".gemini" / "config" / "hooks.json", None, {
             "tracegate": {
                 "SessionStart": [{"type": "command", "command": start}],
+                "PreToolUse": [{"matcher": sh, "hooks": [{"type": "command", "command": pre}]}],
                 "PostToolUse": [{"matcher": m, "hooks": [{"type": "command", "command": post}]}],
                 "Stop": [{"type": "command", "command": end}],
             },

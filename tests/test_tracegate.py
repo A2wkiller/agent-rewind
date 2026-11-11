@@ -422,6 +422,33 @@ class TestHooks(Base):
         rep = self.tg("report", "--dir", str(self.proj), check=True).stdout
         self.assertIn("auto: write_to_file", rep)
 
+    def test_pre_tool_risky_command_auto_checkpoints(self):
+        self.make_git_repo()
+        self.hook("session-start", "claude-code", self.payload())
+        r = self.hook("pre-tool", "claude-code",
+                      self.payload(tool_name="Bash", tool_input={"command": "rm -rf build/"}))
+        self.assertEqual(r.stdout, "")
+        refs = subprocess.run([GIT, "for-each-ref", "refs/tracegate/", "--format=%(refname)"],
+                              cwd=self.proj, capture_output=True, text=True, check=True).stdout
+        self.assertIn("auto-pre-risky", refs)
+
+    def test_pre_tool_safe_command_does_nothing(self):
+        self.make_git_repo()
+        self.hook("session-start", "claude-code", self.payload())
+        self.hook("pre-tool", "claude-code",
+                  self.payload(tool_name="Bash", tool_input={"command": "ls -la"}))
+        refs = subprocess.run([GIT, "for-each-ref", "refs/tracegate/", "--format=%(refname)"],
+                              cwd=self.proj, capture_output=True, text=True, check=True).stdout
+        self.assertNotIn("auto-pre-risky", refs)
+
+    def test_pre_tool_antigravity_allows(self):
+        self.hook("session-start", "antigravity",
+                  {"workspacePaths": [str(self.proj)], "conversationId": "c1"})
+        r = self.hook("pre-tool", "antigravity",
+                      {"workspacePaths": [str(self.proj)],
+                       "toolCall": {"name": "run_command", "args": {"CommandLine": "ls"}}})
+        self.assertEqual(json.loads(r.stdout), {"decision": "allow"})
+
     def test_session_end_closes_open_session(self):
         self.hook("session-start", "claude-code", self.payload())
         self.hook("session-end", "claude-code", self.payload())
@@ -559,6 +586,7 @@ class TestInstallerHooks(Base):
         self.assertEqual(len(hooks["SessionStart"]), 1)
         self.assertIn("tracegate", hooks["SessionStart"][0]["hooks"][0]["command"])
         self.assertEqual(hooks["PostToolUse"][0]["matcher"], "Edit|Write|MultiEdit|NotebookEdit")
+        self.assertEqual(hooks["PreToolUse"][0]["matcher"], "Bash")
         backups = list(settings.parent.glob("settings.json.tracegate-bak-*"))
         self.assertTrue(backups)
         self.assertEqual(json.loads(backups[0].read_text()), {"model": "opus"})
@@ -569,6 +597,7 @@ class TestInstallerHooks(Base):
         data = json.loads((self.fake_home / ".gemini" / "settings.json").read_text())
         self.assertIn("AfterTool", data["hooks"])
         self.assertEqual(data["hooks"]["AfterTool"][0]["matcher"], "write_file|replace")
+        self.assertEqual(data["hooks"]["BeforeTool"][0]["matcher"], "run_shell_command")
 
     def test_antigravity_hooks_file_shape(self):
         r = self.install("antigravity")
@@ -577,6 +606,7 @@ class TestInstallerHooks(Base):
         self.assertIn("tracegate", data)
         self.assertIn("SessionStart", data["tracegate"])
         self.assertIn("Stop", data["tracegate"])
+        self.assertIn("PreToolUse", data["tracegate"])
 
     def test_codex_hooks_file_and_trust_note(self):
         r = self.install("codex")
