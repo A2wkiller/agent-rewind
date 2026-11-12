@@ -23,8 +23,8 @@ cd agent-rewind
 python3 -m unittest discover -s tests -v
 ```
 
-Add a test for every behavior change. CI runs the same command on Python 3.9
-and 3.12.
+Add a test for every behavior change. CI runs the same command on Python 3.11
+and 3.13, on both Ubuntu and Windows.
 
 ## Pull requests
 
