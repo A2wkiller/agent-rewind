@@ -344,6 +344,52 @@ class TestFullRestoreAndDeleteNew(Base):
 
 
 @unittest.skipUnless(GIT, "git not available")
+class TestPathsWithSpacesAndUnicode(Base):
+    """git C-quotes paths with spaces or non-ASCII bytes in --porcelain and
+    ls-tree output unless -z is passed. These tests pin the -z behavior."""
+
+    NAMES = ["with space.txt", "héllo wörld.txt"]
+
+    def setUp(self):
+        super().setUp()
+        self.make_git_repo()
+        self.start_session(self.proj)
+
+    def test_delete_new_removes_space_and_unicode_files(self):
+        self.tg("checkpoint", "c1", "--dir", str(self.proj), check=True)
+        for n in self.NAMES:
+            (self.proj / n).write_text("made after checkpoint\n", encoding="utf-8")
+        r = self.tg("rewind", "c1", "--dir", str(self.proj), "--delete-new", "--yes", check=True)
+        for n in self.NAMES:
+            self.assertFalse((self.proj / n).exists(), n)
+            self.assertIn(n, r.stdout)  # deleted under its real name, not octal escapes
+
+    def test_rewind_reports_real_names_not_quoted(self):
+        self.tg("checkpoint", "c1", "--dir", str(self.proj), check=True)
+        for n in self.NAMES:
+            (self.proj / n).write_text("x\n", encoding="utf-8")
+        r = self.tg("rewind", "c1", "--dir", str(self.proj), "--yes", check=True)
+        for n in self.NAMES:
+            self.assertIn(n, r.stdout)
+        self.assertNotIn("\\303", r.stdout)  # no C-quoted octal bytes leak into output
+
+    def test_full_restore_unstages_ignored_file_with_special_name(self):
+        (self.proj / ".gitignore").write_text("*.secret\n", encoding="utf-8")
+        subprocess.run([GIT, "add", ".gitignore"], cwd=self.proj, check=True)
+        subprocess.run([GIT, "commit", "-qm", "ignore secrets"], cwd=self.proj, check=True)
+        name = "données secrètes.secret"
+        (self.proj / name).write_text("one\n", encoding="utf-8")
+        self.tg("checkpoint", "full1", "--full", "--dir", str(self.proj), check=True)
+        (self.proj / name).write_text("two\n", encoding="utf-8")
+        self.tg("rewind", "full1", "--dir", str(self.proj), "--yes", check=True)
+        self.assertEqual((self.proj / name).read_text(encoding="utf-8"), "one\n")
+        # restored ignored file must stay out of the user's index
+        tracked = subprocess.run([GIT, "ls-files", "-z"], cwd=self.proj,
+                                 capture_output=True, text=True, check=True).stdout
+        self.assertNotIn(name, tracked.split("\0"))
+
+
+@unittest.skipUnless(GIT, "git not available")
 class TestBranchAndSwitch(Base):
     def setUp(self):
         super().setUp()

@@ -301,11 +301,15 @@ def find_checkpoint(recs, which):
 
 def post_checkpoint_files(top, commit):
     """Untracked files that are not part of the checkpoint tree: things
-    created (or left) after the checkpoint."""
-    tree = set(git(["ls-tree", "-r", "--name-only", commit], top).stdout.splitlines())
-    untracked = git(["status", "--porcelain"], top).stdout
-    return [l[3:] for l in untracked.splitlines()
-            if l.startswith("?? ") and l[3:] not in tree]
+    created (or left) after the checkpoint.
+
+    Both listings use -z: without it git C-quotes paths containing spaces or
+    non-ASCII bytes (core.quotePath), and the quoted form is not a usable
+    filesystem path."""
+    tree = set(git(["ls-tree", "-r", "--name-only", "-z", commit], top).stdout.split("\0"))
+    untracked = git(["status", "--porcelain", "-z"], top).stdout
+    return [e[3:] for e in untracked.split("\0")
+            if e.startswith("?? ") and e[3:] not in tree]
 
 
 def cmd_rewind(a):
@@ -338,10 +342,10 @@ def cmd_rewind(a):
     if cp.get("full"):
         # the full snapshot may hold git-ignored files (.env etc.): they belong
         # on disk after a full restore but NOT staged in the user's index
-        head_tree = set(git(["ls-tree", "-r", "--name-only", "HEAD"], top, check=False).stdout.splitlines())
-        snap_tree = set(git(["ls-tree", "-r", "--name-only", cp["commit"]], top).stdout.splitlines())
+        head_tree = set(git(["ls-tree", "-r", "--name-only", "-z", "HEAD"], top, check=False).stdout.split("\0"))
+        snap_tree = set(git(["ls-tree", "-r", "--name-only", "-z", cp["commit"]], top).stdout.split("\0"))
         unstage = [p for p in sorted(snap_tree - head_tree)
-                   if git(["check-ignore", "--no-index", p], top, check=False).returncode == 0]
+                   if p and git(["check-ignore", "--no-index", p], top, check=False).returncode == 0]
         if unstage:
             git(["rm", "-r", "--cached", "-q", "--ignore-unmatch", "--"] + unstage, top)
     deleted = []
