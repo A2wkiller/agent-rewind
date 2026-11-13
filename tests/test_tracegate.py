@@ -252,6 +252,24 @@ class TestCheckpointsAndRewind(Base):
         self.tg("rewind", "1", "--dir", str(self.proj), "--yes", check=True)
         self.assertEqual((self.proj / "app.py").read_text(), "print('v1')\n")
 
+    def test_checkpoint_works_in_linked_worktree(self):
+        # in a linked worktree .git is a FILE, not a dir: the snapshot's
+        # temporary index must go to the real git dir, not top/.git
+        wt = Path(self.tmp.name) / "wt"
+        subprocess.run([GIT, "worktree", "add", "-q", str(wt)], cwd=self.proj, check=True)
+        self.start_session(wt)  # sessions are per project root
+        r = self.tg("checkpoint", "in-worktree", "--dir", str(wt), check=True)
+        self.assertIn("git commit", r.stdout)
+        refs = subprocess.run([GIT, "for-each-ref", "refs/tracegate/", "--format=%(refname)"],
+                              cwd=self.proj, capture_output=True, text=True, check=True).stdout
+        self.assertIn("in-worktree", refs)
+
+    def test_invalid_checkpoint_label_exits_cleanly(self):
+        r = self.tg("checkpoint", "..", "--dir", str(self.proj))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertIn("cannot be stored as a git ref", r.stderr)
+
     def test_checkpoint_outside_git_repo_is_label_only(self):
         plain = Path(self.tmp.name) / "plain"
         plain.mkdir()
@@ -368,6 +386,13 @@ class TestBranchAndSwitch(Base):
         r = self.tg("switch", "nope", "--dir", str(self.proj), "--yes")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("idea-a", r.stderr)
+
+    def test_invalid_branch_name_exits_cleanly(self):
+        for bad in ("..", ".hidden", "trail.", "locked.lock"):
+            r = self.tg("branch", bad, "--dir", str(self.proj))
+            self.assertNotEqual(r.returncode, 0, bad)
+            self.assertNotIn("Traceback", r.stderr, bad)
+            self.assertIn("not a valid git ref component", r.stderr, bad)
 
     def test_branch_ref_is_under_refs_tracegate_branches(self):
         self.tg("branch", "idea-a", "--dir", str(self.proj), check=True)

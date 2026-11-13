@@ -231,6 +231,16 @@ def cmd_log(a):
 
 # ---------------------------------------------------------------- git snapshots
 
+def git_dir(top):
+    """Real git dir for the worktree at top. Path(top)/'.git' is wrong in
+    linked worktrees and submodules, where .git is a FILE pointing at the
+    real git dir."""
+    try:
+        return git(["rev-parse", "--absolute-git-dir"], top).stdout.strip()
+    except Exception:
+        return None
+
+
 def git_snapshot(cwd, sid, label, full=False):
     """Snapshot the working tree as a dangling commit under refs/tracegate/.
 
@@ -245,7 +255,10 @@ def git_snapshot(cwd, sid, label, full=False):
         top = git(["rev-parse", "--show-toplevel"], str(cwd)).stdout.strip()
     except Exception:
         return None
-    idx = Path(top) / ".git" / f"tracegate_index_{os.getpid()}"
+    gd = git_dir(top)
+    if not gd:
+        return None
+    idx = Path(gd) / f"tracegate_index_{os.getpid()}"
     env = dict(os.environ, GIT_INDEX_FILE=str(idx))
     try:
         git(["add", "-A"] + (["-f"] if full else []), top, env)
@@ -260,6 +273,9 @@ def git_snapshot(cwd, sid, label, full=False):
         cmd += ["-p", head.stdout.strip()]
     commit = git(cmd + ["-m", f"tracegate checkpoint: {label}"], top).stdout.strip()
     ref = f"refs/tracegate/{sid}/{label.replace(' ', '-')[:40]}"
+    if git(["check-ref-format", ref], top, check=False).returncode != 0:
+        sys.exit(f"Label '{label}' cannot be stored as a git ref: no '..', leading/trailing"
+                 " dots, or control characters. Rename the checkpoint or branch.")
     git(["update-ref", ref, commit], top)
     return commit
 
@@ -379,7 +395,13 @@ def cmd_rewind(a):
 def branch_ref(name):
     if not re.fullmatch(r"[A-Za-z0-9._-]+", name or ""):
         sys.exit("Branch name: letters, digits, dot, dash, underscore only.")
-    return f"refs/tracegate/branches/{name}"
+    ref = f"refs/tracegate/branches/{name}"
+    # the regex above still allows names git rejects ('..', '.a', 'a.', 'a.lock'):
+    # reject them with a clean message instead of crashing in update-ref
+    if subprocess.run(["git", "check-ref-format", ref], capture_output=True).returncode != 0:
+        sys.exit(f"Branch name '{name}' is not a valid git ref component: no '..',"
+                 " leading/trailing dots, or a '.lock' suffix.")
+    return ref
 
 
 def cmd_branch(a):
