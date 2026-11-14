@@ -669,6 +669,16 @@ class TestInstallerHooks(Base):
         self.assertIn("not valid JSON", r.stderr)
         self.assertEqual(settings.read_text(), "{ not json")  # untouched
 
+    def test_non_list_hook_event_is_refused(self):
+        settings = self.fake_home / ".claude" / "settings.json"
+        settings.parent.mkdir(parents=True)
+        settings.write_text(json.dumps({"hooks": {"SessionStart": {"oops": True}}}))
+        r = self.install("claude-code")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertIn("is not a list", r.stderr)
+        self.assertEqual(json.loads(settings.read_text()), {"hooks": {"SessionStart": {"oops": True}}})
+
 
 @unittest.skipUnless(GIT, "git not available")
 class TestOneLineInstall(Base):
