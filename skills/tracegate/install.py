@@ -134,6 +134,9 @@ def merge_hooks(path, top_key, entries):
     else:
         for event, groups in entries.items():
             existing = container.setdefault(event, [])
+            if not isinstance(existing, list):
+                sys.exit(f"refusing to edit {path}: hooks.{event} is not a list. "
+                         "Fix it or move it aside.")
             for g in groups:
                 if not any(has_tracegate(e) for e in existing if isinstance(e, dict)):
                     existing.append(g)
