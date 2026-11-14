@@ -191,6 +191,14 @@ class TestLoggingAndReport(Base):
         r = self.tg("report", check=True)
         self.assertIn("report", r.stdout)
 
+    def test_fully_corrupted_log_reports_instead_of_crashing(self):
+        self.start_session()
+        f = self.sessions()[0]
+        f.write_text("not json at all\n{\"broken\": \n")  # no readable records at all
+        r = self.tg("report", check=True)
+        self.assertIn("no readable records", r.stdout)
+        self.assertNotIn("Traceback", r.stderr)
+
 
 @unittest.skipUnless(GIT, "git not available")
 class TestCheckpointsAndRewind(Base):

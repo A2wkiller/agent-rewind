@@ -574,6 +574,12 @@ def cmd_cost(a):
 
 def build_report(sid, cwd=None):
     recs = read(sid, cwd)
+    if not recs:
+        # every line failed to parse (truncated write, full disk): report
+        # honestly instead of crashing on recs[0]
+        return (f"TraceGate backtracking report  (session {sid})\n"
+                "The session log has no readable records (empty or corrupted). "
+                "Nothing to report; a new start opens a fresh session.")
     start = next((r for r in recs if r["type"] == "start"), {})
     steps = [r for r in recs if r["type"] == "step"]
     cps = [r for r in recs if r["type"] == "checkpoint"]
