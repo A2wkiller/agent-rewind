@@ -701,10 +701,11 @@ def hook_cwd(payload):
 
 
 RISKY = re.compile(
-    r"(rm\s+-[a-zA-Z]*[rf]"           # rm -rf / rm -fr
+    r"(rm\s+(-[a-zA-Z]*[rf]|--[a-z-]*(force|recursive))"  # rm -rf / rm --recursive --force
     r"|git\s+reset\s+--hard"
-    r"|git\s+clean\s+-[a-zA-Z]*f"
-    r"|git\s+checkout\s+--"
+    r"|git\s+clean\s+(-[a-zA-Z]*f|--force)"
+    r"|git\s+checkout\s+(--|\.)"      # git checkout -- . / git checkout .
+    r"|git\s+restore\s+(--worktree\b|\.)"  # discards worktree changes
     r"|drop\s+table|delete\s+from|truncate\s+table"
     r"|mkfs|dd\s+.*of=/dev"
     r"|chmod\s+-R\s+777)", re.I)

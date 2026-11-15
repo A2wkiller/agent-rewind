@@ -483,6 +483,39 @@ class TestHooks(Base):
                        "toolCall": {"name": "run_command", "args": {"CommandLine": "ls"}}})
         self.assertEqual(json.loads(r.stdout), {"decision": "allow"})
 
+    def test_every_risky_pattern_auto_checkpoints(self):
+        self.make_git_repo()
+        self.hook("session-start", "claude-code", self.payload())
+        risky = ["rm -rf build/", "rm -fr build/", "rm -r -f dist", "rm -rfv x",
+                 "rm -f locked", "rm --force -r node_modules",
+                 "rm --recursive --force node_modules", "sudo rm -rf /",
+                 "git reset --hard HEAD~1", "git clean -fd", "git clean -fx",
+                 "git clean --force", "git checkout -- .", "git checkout .",
+                 "git restore .", "git restore --worktree src",
+                 "DROP TABLE users", "delete from sessions", "TRUNCATE TABLE logs",
+                 "mkfs.ext4 /dev/sda", "dd if=/dev/zero of=/dev/sda bs=1M",
+                 "chmod -R 777 /var/www"]
+        for i, cmd in enumerate(risky, 1):
+            self.hook("pre-tool", "claude-code",
+                      self.payload(tool_name="Bash", tool_input={"command": cmd}))
+            recs = [json.loads(l) for l in self.sessions()[0].read_text().splitlines()]
+            n = sum(1 for r in recs if r["type"] == "checkpoint")
+            self.assertEqual(n, i, f"no auto-checkpoint for: {cmd}")
+
+    def test_safe_lookalikes_do_not_checkpoint(self):
+        self.make_git_repo()
+        self.hook("session-start", "claude-code", self.payload())
+        safe = ["ls -la", "rm file.txt", "rm -i file", "git status",
+                "git checkout main", "git checkout -b feature",
+                "git restore --staged app.py", "git clean -n", "git log --oneline",
+                "chmod 755 script.sh", "grep -rn pattern ."]
+        for cmd in safe:
+            self.hook("pre-tool", "claude-code",
+                      self.payload(tool_name="Bash", tool_input={"command": cmd}))
+        recs = [json.loads(l) for l in self.sessions()[0].read_text().splitlines()]
+        n = sum(1 for r in recs if r["type"] == "checkpoint")
+        self.assertEqual(n, 0, "a safe command triggered an auto-checkpoint")
+
     def test_session_end_closes_open_session(self):
         self.hook("session-start", "claude-code", self.payload())
         self.hook("session-end", "claude-code", self.payload())
